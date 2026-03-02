@@ -1,4 +1,4 @@
-// js/UI.js - Canvas绘制
+// js/UI.js - Canvas绘制（已修复高分屏模糊）
 
 const DOT_POSITIONS = {
   1: [[0.5, 0.5]],
@@ -12,20 +12,38 @@ const DOT_POSITIONS = {
 export class UI {
   constructor(canvas, logicW, logicH, safeTop) {
     this.canvas = canvas
-    this.ctx = canvas.getContext('2d')
     this.w = logicW || canvas.width
     this.h = logicH || canvas.height
     this.safeTop = safeTop || 60
     this.particles = []
+
+    // ✅ 修复高分屏模糊：适配 devicePixelRatio（iPhone 15 Pro Max = 3×）
+    // 微信小游戏环境用 wx.getSystemInfoSync().pixelRatio，H5 用 window.devicePixelRatio
+    const dpr = (typeof wx !== 'undefined' && wx.getSystemInfoSync)
+      ? wx.getSystemInfoSync().pixelRatio
+      : (window.devicePixelRatio || 1)
+    this.dpr = dpr
+
+    // 将 canvas 的物理像素扩大到 dpr 倍
+    canvas.width  = this.w * dpr
+    canvas.height = this.h * dpr
+
+    // CSS 尺寸保持逻辑尺寸（仅 H5 生效；微信小游戏通过 style.width 无效，可忽略）
+    if (canvas.style) {
+      canvas.style.width  = this.w + 'px'
+      canvas.style.height = this.h + 'px'
+    }
+
+    this.ctx = canvas.getContext('2d')
+    // 全局缩放，后续所有绘制坐标仍用逻辑像素，无需改其他代码
+    this.ctx.scale(dpr, dpr)
   }
 
   clear() {
     const ctx = this.ctx
-    // Dark background
     ctx.fillStyle = '#1A0A06'
     ctx.fillRect(0, 0, this.w, this.h)
 
-    // Subtle radial gradient
     const grad = ctx.createRadialGradient(this.w * 0.5, this.h * 0.3, 0, this.w * 0.5, this.h * 0.3, this.w * 0.8)
     grad.addColorStop(0, 'rgba(139,26,14,0.2)')
     grad.addColorStop(1, 'transparent')
@@ -48,7 +66,7 @@ export class UI {
   drawPool(amount) {
     const ctx = this.ctx
     const x = this.w / 2
-    const y = this.safeTop + 74   // 跟在 header subtitle 下方
+    const y = this.safeTop + 74
 
     ctx.fillStyle = 'rgba(192,57,43,0.12)'
     ctx.strokeStyle = 'rgba(192,57,43,0.25)'
@@ -70,13 +88,11 @@ export class UI {
   drawBowl(cx, cy, rx, ry) {
     const ctx = this.ctx
 
-    // Bowl shadow
     ctx.fillStyle = 'rgba(0,0,0,0.3)'
     ctx.beginPath()
     ctx.ellipse(cx + 6, cy + 8, rx, ry, 0, 0, Math.PI * 2)
     ctx.fill()
 
-    // Bowl fill
     const bowlGrad = ctx.createRadialGradient(cx - rx * 0.3, cy - ry * 0.3, 0, cx, cy, rx)
     bowlGrad.addColorStop(0, '#2A1208')
     bowlGrad.addColorStop(1, '#150804')
@@ -85,14 +101,12 @@ export class UI {
     ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2)
     ctx.fill()
 
-    // Bowl rim
     ctx.strokeStyle = '#8B6914'
     ctx.lineWidth = 4
     ctx.beginPath()
     ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2)
     ctx.stroke()
 
-    // Inner rim highlight
     ctx.strokeStyle = 'rgba(212,172,13,0.35)'
     ctx.lineWidth = 2
     ctx.beginPath()
@@ -106,18 +120,16 @@ export class UI {
     const shown = displayValue !== undefined ? displayValue : value
     const isFour = shown === 4
     const isOne = shown === 1
-    const isRedDot = isFour || isOne  // 1和4都是红点
+    const isRedDot = isFour || isOne
 
     ctx.save()
     ctx.translate(x, y)
     ctx.rotate(angle)
 
-    // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.35)'
     this._roundRect(-size / 2 + 3, -size / 2 + 5, size, size, 9)
     ctx.fill()
 
-    // Die face - 4显示浅红底，其余象牙白
     if (isFour) {
       const grad = ctx.createLinearGradient(-size / 2, -size / 2, size / 2, size / 2)
       grad.addColorStop(0, '#FFE0E0')
@@ -132,7 +144,6 @@ export class UI {
     this._roundRect(-size / 2, -size / 2, size, size, 9)
     ctx.fill()
 
-    // Border - 4静止后红色发光
     if (isFour && isSettled) {
       ctx.strokeStyle = 'rgba(192,57,43,0.85)'
       ctx.lineWidth = 2.5
@@ -143,7 +154,6 @@ export class UI {
     this._roundRect(-size / 2, -size / 2, size, size, 9)
     ctx.stroke()
 
-    // Dots - 1和4红色，其他黑色
     const dots = DOT_POSITIONS[shown] || DOT_POSITIONS[1]
     const dotColor = isRedDot ? '#C0392B' : '#2C1810'
     const dotR = shown === 6 ? 4 : 4.8
@@ -172,7 +182,6 @@ export class UI {
 
       ctx.globalAlpha = isElim ? 0.3 : 1
 
-      // Card background
       ctx.fillStyle = isActive ? 'rgba(192,57,43,0.25)' : 'rgba(255,255,255,0.05)'
       ctx.strokeStyle = isActive ? '#C0392B' : 'rgba(255,255,255,0.1)'
       ctx.lineWidth = isActive ? 2 : 1
@@ -180,7 +189,6 @@ export class UI {
       ctx.fill()
       ctx.stroke()
 
-      // Active indicator
       if (isActive) {
         ctx.fillStyle = '#C0392B'
         ctx.beginPath()
@@ -188,14 +196,12 @@ export class UI {
         ctx.fill()
       }
 
-      // Name
       ctx.fillStyle = isActive ? '#FFFFFF' : 'rgba(255,255,255,0.7)'
       ctx.font = `bold ${cardW > 75 ? 13 : 11}px sans-serif`
       ctx.textAlign = 'center'
       const name = p.name.length > 4 ? p.name.slice(0, 4) : p.name
       ctx.fillText(name, x + cardW / 2, y + 22)
 
-      // Chips
       ctx.fillStyle = '#D4AC0D'
       ctx.font = `bold 16px serif`
       ctx.fillText(`${p.chips}点`, x + cardW / 2, y + 44)
@@ -220,12 +226,10 @@ export class UI {
     const by = this.h - 148
     const offset = pressed ? 3 : 0
 
-    // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.4)'
     this._roundRect(bx + 3, by + 6, bw, bh, 14)
     ctx.fill()
 
-    // Button
     const grad = ctx.createLinearGradient(bx, by + offset, bx, by + bh + offset)
     grad.addColorStop(0, pressed ? '#A93226' : '#C0392B')
     grad.addColorStop(1, pressed ? '#7B241C' : '#922B21')
@@ -273,18 +277,15 @@ export class UI {
       ctx.textAlign = 'center'
       ctx.fillText('💨  轮空', cx, this.h - 215)
     } else {
-      // Small label
       ctx.fillStyle = 'rgba(212,172,13,0.6)'
       ctx.font = '13px sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText(`${result.emoji}  ${result.label}`, cx, this.h - 232)
 
-      // Big call phrase - the shout!
       ctx.fillStyle = '#D4AC0D'
       ctx.font = 'bold 34px serif'
       ctx.fillText(result.call || '', cx, this.h - 198)
 
-      // Amount in 点
       ctx.fillStyle = 'rgba(255,255,255,0.5)'
       ctx.font = '18px serif'
       const payoutStr = payout === Infinity ? '全部' : `${payout} 点`
@@ -312,7 +313,6 @@ export class UI {
     ctx.fillText(label || '下一位 →', this.w / 2, by + 26)
   }
 
-  // Setup screen
   drawSetupScreen(players, stake, mode) {
     this.clear()
     const ctx = this.ctx
@@ -327,7 +327,6 @@ export class UI {
     ctx.fillText('苏州祖传骰子游戏', this.w / 2, 108)
   }
 
-  // Particles
   spawnParticles(x, y, emojis, count = 10) {
     for (let i = 0; i < count; i++) {
       this.particles.push({
@@ -363,7 +362,6 @@ export class UI {
     ctx.globalAlpha = 1
   }
 
-  // Winner overlay
   drawWinner(name) {
     const ctx = this.ctx
     ctx.fillStyle = 'rgba(0,0,0,0.85)'
