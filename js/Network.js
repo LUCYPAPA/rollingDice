@@ -52,21 +52,36 @@ class Network {
   }
 
   // ── 1. 登录并同步玩家信息 ──────────────────────
-  // 小游戏无法用 getUserProfile，直接用云函数拿 openid
-  // 昵称/头像让玩家在设置页自己填，或用 openid 后6位作默认昵称
-  async login() {
-    // 第一次调用时才初始化云开发，本地单机完全不触碰这里
+  async login(collectNickname) {
     getDB()
+
+    // 第一步：先登录拿到 openid
+    const loginRes = await wx.cloud.callFunction({
+      name: 'playerManager',
+      data: { action: 'login', nickname: '', avatarUrl: '' }
+    })
+    this.openid = loginRes.result.openid
+    const fallbackNick = '玩家' + this.openid.slice(-6)
+
+    // 第二步：通过 Page 注入的原生 input 面板收集昵称
+    if (typeof collectNickname === 'function') {
+      const result = await collectNickname()
+      this.nickname = result.nickname || fallbackNick
+      this.avatarUrl = result.avatarUrl || ''
+    } else {
+      this.nickname = fallbackNick
+    }
+
+    // 第三步：把最终昵称同步到云端
     try {
       const res = await wx.cloud.callFunction({
         name: 'playerManager',
         data: {
           action: 'login',
-          nickname: this.nickname || '',
-          avatarUrl: this.avatarUrl || '',
+          nickname: this.nickname,
+          avatarUrl: this.avatarUrl,
         }
       })
-      // 内容安全拦截
       if (res.result.blocked) {
         throw new Error(res.result.error || '内容安全检测未通过')
       }
@@ -178,6 +193,19 @@ class Network {
   }
 
   // ── 7. 离开房间 ────────────────────────────────
+  // 房主开始游戏
+  async startGame() {
+    const res = await wx.cloud.callFunction({
+      name: 'roomManager',
+      data: {
+        action: 'startGame',
+        roomId: this.currentRoomId,
+        openid: this.openid,
+      }
+    })
+    return res.result
+  }
+
   async leaveRoom() {
     if (!this.currentRoomId) return
     this._stopWatch()

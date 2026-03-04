@@ -76,10 +76,11 @@ class Game {
     this._titleTapCount = 0
     this._titleTapTimer = null
     // 大厅界面状态
-    this._lobbyView = 'main'     // 'main' | 'join'
+    this._lobbyView = 'main'     // 'main' | 'waiting'
     this._lobbyJoinCode = ''
     this._lobbyLoading = false
     this._lobbyError = ''
+    this._isHost = false         // 是否是房主
   }
 
   start() {
@@ -374,63 +375,118 @@ class Game {
     const w = this.w
     const h = this.h
     const st = this.safeTop
+    const sb = this.safeBottom || 0
+    const cx = w / 2
 
-    // Header
+    // 通用 Header
     ctx.textAlign = 'center'
     ctx.fillStyle = '#D4AC0D'
-    ctx.font = 'bold 28px serif'
-    ctx.fillText('好婆叫侬来白相', w / 2, st + 36)
-    ctx.fillStyle = 'rgba(212,172,13,0.5)'
-    ctx.font = '13px sans-serif'
-    ctx.fillText('联机大厅', w / 2, st + 60)
+    ctx.font = 'bold 26px serif'
+    ctx.fillText('好婆叫侬来白相', cx, st + 36)
 
     // 返回按钮
     ctx.fillStyle = 'rgba(255,255,255,0.08)'
-    ui._roundRect(12, st + 12, 56, 30, 8)
+    ui._roundRect(12, st + 10, 60, 30, 8)
     ctx.fill()
     ctx.fillStyle = 'rgba(255,255,255,0.5)'
     ctx.font = '13px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText('← 返回', 40, st + 32)
-
-    // 玩家信息
-    if (this.network.nickname) {
-      ctx.fillStyle = 'rgba(255,255,255,0.3)'
-      ctx.font = '13px sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText(`👤  ${this.network.nickname}`, w / 2, st + 90)
-    }
-
-    const cx = w / 2
-    let y = st + 130
+    ctx.fillText('← 返回', 42, st + 30)
 
     if (this._lobbyLoading) {
       ctx.fillStyle = 'rgba(255,255,255,0.4)'
       ctx.font = '16px sans-serif'
-      ctx.textAlign = 'center'
       ctx.fillText('连接中...', cx, h / 2)
       return
     }
 
+    // ══ 等待室视图（创建或加入成功后显示）══════════════
+    if (this._lobbyView === 'waiting') {
+      ctx.fillStyle = 'rgba(212,172,13,0.5)'
+      ctx.font = '14px sans-serif'
+      ctx.fillText(this._isHost ? '房间已创建，等待好友加入' : '已加入，等待房主开始', cx, st + 62)
+
+      if (this.network.nickname) {
+        ctx.fillStyle = 'rgba(255,255,255,0.35)'
+        ctx.font = '13px sans-serif'
+        ctx.fillText('👤  ' + this.network.nickname, cx, st + 86)
+      }
+
+      // 房间号大卡片
+      const cardY = st + 110
+      ctx.fillStyle = 'rgba(212,172,13,0.1)'
+      ctx.strokeStyle = 'rgba(212,172,13,0.45)'
+      ctx.lineWidth = 1.5
+      ui._roundRect(32, cardY, w - 64, 108, 18)
+      ctx.fill(); ctx.stroke()
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'
+      ctx.font = '12px sans-serif'
+      ctx.fillText('房间号（点击下方按钮分享给好友）', cx, cardY + 24)
+      ctx.fillStyle = '#D4AC0D'
+      ctx.font = 'bold 56px serif'
+      ctx.fillText(this.activityCode || '----', cx, cardY + 88)
+
+      // 分享按钮
+      const shareY = cardY + 124
+      ctx.fillStyle = 'rgba(7,193,96,0.18)'
+      ctx.strokeStyle = 'rgba(7,193,96,0.55)'
+      ctx.lineWidth = 1
+      ui._roundRect(32, shareY, w - 64, 50, 13)
+      ctx.fill(); ctx.stroke()
+      ctx.fillStyle = '#07C160'
+      ctx.font = 'bold 16px sans-serif'
+      ctx.fillText('📤  分享房间号给微信好友', cx, shareY + 32)
+
+      // 已加入玩家列表
+      const listY = shareY + 68
+      const players = this._waitingPlayers || []
+      ctx.fillStyle = 'rgba(255,255,255,0.28)'
+      ctx.font = '13px sans-serif'
+      ctx.fillText('已加入 ' + players.length + ' 人', cx, listY)
+      players.forEach((p, i) => {
+        ctx.fillStyle = 'rgba(255,255,255,0.65)'
+        ctx.font = '15px sans-serif'
+        ctx.fillText((i + 1) + '.  ' + p.nickname, cx, listY + 24 + i * 30)
+      })
+
+      // 房主「开始游戏」按钮
+      if (this._isHost) {
+        const startY = h - 72 - sb
+        ctx.fillStyle = players.length >= 1 ? '#C0392B' : 'rgba(100,40,30,0.5)'
+        ui._roundRect(32, startY, w - 64, 52, 14)
+        ctx.fill()
+        ctx.fillStyle = '#FFFFFF'
+        ctx.font = 'bold 19px serif'
+        ctx.fillText('开 始 游 戏', cx, startY + 34)
+      }
+      return
+    }
+
+    // ══ 主视图 ═══════════════════════════════════
+    ctx.fillStyle = 'rgba(212,172,13,0.5)'
+    ctx.font = '13px sans-serif'
+    ctx.fillText('联机大厅', cx, st + 62)
+    if (this.network.nickname) {
+      ctx.fillStyle = 'rgba(255,255,255,0.3)'
+      ctx.font = '13px sans-serif'
+      ctx.fillText('👤  ' + this.network.nickname, cx, st + 88)
+    }
+
+    let y = st + 130
     if (this._lobbyError) {
       ctx.fillStyle = '#FF6B5B'
       ctx.font = '14px sans-serif'
-      ctx.textAlign = 'center'
       ctx.fillText(this._lobbyError, cx, y)
-      y += 32
+      y += 36
     }
 
-    // 创建房间
     ctx.fillStyle = '#C0392B'
     ui._roundRect(40, y, w - 80, 60, 14)
     ctx.fill()
     ctx.fillStyle = '#FFFFFF'
     ctx.font = 'bold 19px serif'
-    ctx.textAlign = 'center'
     ctx.fillText('🎲  创建新房间', cx, y + 38)
     y += 80
 
-    // 加入房间
     ctx.fillStyle = 'rgba(255,255,255,0.07)'
     ctx.strokeStyle = 'rgba(255,255,255,0.2)'
     ctx.lineWidth = 1
@@ -438,25 +494,7 @@ class Game {
     ctx.fill(); ctx.stroke()
     ctx.fillStyle = '#FFFFFF'
     ctx.font = 'bold 19px serif'
-    ctx.textAlign = 'center'
     ctx.fillText('🔑  输入房间号加入', cx, y + 38)
-    y += 80
-
-    // 如果已在房间，显示当前活动码
-    if (this.activityCode) {
-      ctx.fillStyle = 'rgba(212,172,13,0.15)'
-      ctx.strokeStyle = 'rgba(212,172,13,0.3)'
-      ctx.lineWidth = 1
-      ui._roundRect(40, y, w - 80, 72, 12)
-      ctx.fill(); ctx.stroke()
-      ctx.fillStyle = 'rgba(255,255,255,0.4)'
-      ctx.font = '12px sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText('当前房间号（分享给好友）', cx, y + 22)
-      ctx.fillStyle = '#D4AC0D'
-      ctx.font = 'bold 28px serif'
-      ctx.fillText(this.activityCode, cx, y + 54)
-    }
   }
 
   // ── Events ─────────────────────────────────────
@@ -710,7 +748,7 @@ class Game {
     this._lobbyLoading = true
     this._lobbyError = ''
     try {
-      await this.network.login()
+      await this.network.login(this.collectNickname)
       this._lobbyLoading = false
     } catch {
       this._lobbyLoading = false
@@ -720,26 +758,61 @@ class Game {
 
   _handleLobbyTouch(tx, ty) {
     const st = this.safeTop
+    const sb = this.safeBottom || 0
     const w = this.w
+    const h = this.h
 
-    // 返回
-    if (tx < 80 && ty >= st + 12 && ty <= st + 42) {
-      this.state = STATE.SETUP
-      this.isOnline = false
+    // 返回按钮（等待室也可以退出）
+    if (tx < 80 && ty >= st + 10 && ty <= st + 40) {
+      if (this._lobbyView === 'waiting') {
+        // 退出房间
+        this.network.leaveRoom().catch(() => {})
+        this._lobbyView = 'main'
+        this._isHost = false
+        this._waitingPlayers = []
+        this.activityCode = ''
+      } else {
+        this.state = STATE.SETUP
+        this.isOnline = false
+      }
       return
     }
 
-    let y = st + 130
-    if (this._lobbyError) y += 32
+    // ── 等待室触摸 ────────────────────────────────
+    if (this._lobbyView === 'waiting') {
+      const cardY = st + 110
+      const shareY = cardY + 124
 
-    // 创建房间
+      // 分享按钮
+      if (ty >= shareY && ty <= shareY + 50) {
+        wx.shareAppMessage({
+          title: `快来和我一起玩！房间号：${this.activityCode}`,
+          path: '/pages/game/game',
+          imageUrl: '',
+        })
+        return
+      }
+
+      // 房主开始按钮
+      if (this._isHost) {
+        const startY = h - 72 - sb
+        if (ty >= startY && ty <= startY + 52) {
+          this._hostStartGame()
+        }
+      }
+      return
+    }
+
+    // ── 主视图触摸 ────────────────────────────────
+    let y = st + 130
+    if (this._lobbyError) y += 36
+
     if (ty >= y && ty <= y + 60) {
       this._createOnlineRoom()
       return
     }
     y += 80
 
-    // 加入房间
     if (ty >= y && ty <= y + 60) {
       wx.showModal({
         title: '输入房间号',
@@ -754,6 +827,20 @@ class Game {
     }
   }
 
+  // 房主点「开始游戏」──────────────────────────────
+  async _hostStartGame() {
+    try {
+      const res = await this.network.startGame()
+      if (res && res.success) {
+        this._startOnlineGame(res.roomData)
+      } else {
+        wx.showToast({ title: res?.error || '开始失败', icon: 'none' })
+      }
+    } catch (e) {
+      wx.showToast({ title: '网络错误', icon: 'none' })
+    }
+  }
+
   async _createOnlineRoom() {
     this._lobbyLoading = true
     this._lobbyError = ''
@@ -764,8 +851,10 @@ class Game {
       })
       if (res.success) {
         this.activityCode = res.roomCode || res.activityCode
+        this._isHost = true
         this._bindRoomCallbacks()
-        this._startOnlineGame(res.roomData)
+        // 进入等待室，房主手动点「开始」才进游戏
+        this._lobbyView = 'waiting'
       } else {
         this._lobbyError = res.error || '创建失败'
       }
@@ -782,7 +871,10 @@ class Game {
       const res = await this.network.joinRoom(code)
       if (res.success) {
         this.activityCode = res.roomCode || code
+        this._isHost = false
         this._bindRoomCallbacks()
+        // 加入后也进等待室，等房主开始
+        this._lobbyView = 'waiting'
         this._startOnlineGame(res.roomData)
       } else {
         this._lobbyError = res.error || '加入失败'
@@ -807,10 +899,21 @@ class Game {
     this.round = roomData.round || this.round
     this.pool = roomData.pool || 0
 
+    // 等待室：同步已加入玩家列表
+    if (this._lobbyView === 'waiting' && roomData.players) {
+      this._waitingPlayers = roomData.players.map(p => ({ nickname: p.nickname }))
+    }
+
+    // 房主点开始后，非房主自动进入游戏
+    if (roomData.phase === 'playing' && this.state === STATE.LOBBY && !this._isHost) {
+      this._startOnlineGame(roomData)
+      return
+    }
+
     // 同步玩家列表（用云端数据，nickname/avatarUrl替代本地name）
-    this.players = roomData.players.map(p => ({
+    this.players = (roomData.players || []).map(p => ({
       ...p,
-      name: p.nickname,   // 兼容本地渲染逻辑
+      name: p.nickname,
       chips: p.chips,
       active: p.active,
     }))
