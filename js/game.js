@@ -137,7 +137,7 @@ export default class Game {
     const subtitle = this.isOnline
       ? `房间号 ${this.network.currentRoomCode || this.activityCode}  ·  第 ${this.round} 轮`
       : `第 ${this.round} 轮`
-    ui.drawHeader('阿嗲好婆叫侬白相', subtitle)
+    ui.drawHeader('好婆叫侬来白相', subtitle)
     ui.drawExitButton()
     ui.drawPool(this.pool)
     ui.drawBowl(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
@@ -242,7 +242,7 @@ export default class Game {
     ctx.textAlign = 'center'
     ctx.fillStyle = '#D4AC0D'
     ctx.font = 'bold 34px serif'
-    ctx.fillText('阿嗲好婆叫侬白相', w / 2, st + 36)
+    ctx.fillText('好婆叫侬来白相', w / 2, st + 36)
     ctx.fillStyle = 'rgba(212,172,13,0.5)'
     ctx.font = '13px sans-serif'
     ctx.fillText('苏州祖传骰子游戏', w / 2, st + 62)
@@ -376,7 +376,7 @@ export default class Game {
     ctx.textAlign = 'center'
     ctx.fillStyle = '#D4AC0D'
     ctx.font = 'bold 28px serif'
-    ctx.fillText('阿嗲好婆叫侬白相', w / 2, st + 36)
+    ctx.fillText('好婆叫侬来白相', w / 2, st + 36)
     ctx.fillStyle = 'rgba(212,172,13,0.5)'
     ctx.font = '13px sans-serif'
     ctx.fillText('联机游戏大厅', w / 2, st + 60)

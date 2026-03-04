@@ -320,7 +320,7 @@ export class UI {
 
     ctx.fillStyle = '#D4AC0D'
     ctx.font = 'bold 32px serif'
-    ctx.fillText('阿嗲好婆叫侬白相', this.w / 2, 80)
+    ctx.fillText('好婆叫侬来白相', this.w / 2, 80)
 
     ctx.fillStyle = 'rgba(212,172,13,0.5)'
     ctx.font = '14px sans-serif'
