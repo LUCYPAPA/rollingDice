@@ -2,7 +2,7 @@
 // 隐藏管理员界面 — 全 Canvas 绘制，无 DOM
 // 入口：连续点击标题区域5次
 
-export class AdminPanel {
+class AdminPanel {
   constructor(ui, network) {
     this.ui = ui          // UI 实例（复用 Canvas）
     this.network = network
@@ -459,3 +459,4 @@ export class AdminPanel {
     return true  // 吞掉所有触摸，防止穿透到游戏层
   }
 }
+module.exports = { AdminPanel }

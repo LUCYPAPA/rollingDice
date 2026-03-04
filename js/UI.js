@@ -9,34 +9,33 @@ const DOT_POSITIONS = {
   6: [[0.25, 0.22], [0.75, 0.22], [0.25, 0.5], [0.75, 0.5], [0.25, 0.78], [0.75, 0.78]],
 }
 
-export class UI {
-  constructor(canvas, logicW, logicH, safeTop) {
+class UI {
+  constructor(canvas, logicW, logicH, safeTop, dpr, safeBottom) {
     this.canvas = canvas
-    this.w = logicW || canvas.width
-    this.h = logicH || canvas.height
+    this.w = (logicW > 0 ? logicW : null) || canvas.width || 375
+    this.h = (logicH > 0 ? logicH : null) || canvas.height || 812
     this.safeTop = safeTop || 60
+    this.safeBottom = safeBottom || 0
     this.particles = []
 
-    // ✅ 修复高分屏模糊：适配 devicePixelRatio（iPhone 15 Pro Max = 3×）
-    // 微信小游戏环境用 wx.getSystemInfoSync().pixelRatio，H5 用 window.devicePixelRatio
-    const dpr = (typeof wx !== 'undefined' && wx.getSystemInfoSync)
-      ? wx.getSystemInfoSync().pixelRatio
-      : (window.devicePixelRatio || 1)
-    this.dpr = dpr
-
-    // 将 canvas 的物理像素扩大到 dpr 倍
-    canvas.width  = this.w * dpr
-    canvas.height = this.h * dpr
-
-    // CSS 尺寸保持逻辑尺寸（仅 H5 生效；微信小游戏通过 style.width 无效，可忽略）
-    if (canvas.style) {
-      canvas.style.width  = this.w + 'px'
-      canvas.style.height = this.h + 'px'
+    // 小程序模式：canvas 尺寸和 dpr 已由 Page 设好，直接接收
+    // 小游戏模式：dpr 不传时自行检测
+    if (dpr) {
+      this.dpr = dpr
+    } else {
+      const _wi = wx.getWindowInfo()
+      const _di = wx.getDeviceInfo()
+      this.dpr = _di.pixelRatio || _wi.pixelRatio || 2
+      canvas.width  = this.w * this.dpr
+      canvas.height = this.h * this.dpr
+      if (canvas.style) {
+        canvas.style.width  = this.w + 'px'
+        canvas.style.height = this.h + 'px'
+      }
     }
 
     this.ctx = canvas.getContext('2d')
-    // 全局缩放，后续所有绘制坐标仍用逻辑像素，无需改其他代码
-    this.ctx.scale(dpr, dpr)
+    this.ctx.scale(this.dpr, this.dpr)
   }
 
   clear() {
@@ -215,7 +214,7 @@ export class UI {
     ctx.textAlign = 'center'
     ctx.fillStyle = 'rgba(255,255,255,0.5)'
     ctx.font = '13px sans-serif'
-    ctx.fillText(`${name} 的回合`, this.w / 2, this.h - 170)
+    ctx.fillText(`${name} 的回合`, this.w / 2, this.h - 170 - this.safeBottom)
   }
 
   drawRollButton(pressed) {
@@ -223,7 +222,7 @@ export class UI {
     const bw = this.w - 64
     const bh = 52
     const bx = 32
-    const by = this.h - 148
+    const by = this.h - 148 - this.safeBottom
     const offset = pressed ? 3 : 0
 
     ctx.fillStyle = 'rgba(0,0,0,0.4)'
@@ -275,21 +274,21 @@ export class UI {
       ctx.fillStyle = 'rgba(255,255,255,0.25)'
       ctx.font = '16px serif'
       ctx.textAlign = 'center'
-      ctx.fillText('💨  轮空', cx, this.h - 215)
+      ctx.fillText('💨  轮空', cx, this.h - 215 - this.safeBottom)
     } else {
       ctx.fillStyle = 'rgba(212,172,13,0.6)'
       ctx.font = '13px sans-serif'
       ctx.textAlign = 'center'
-      ctx.fillText(`${result.emoji}  ${result.label}`, cx, this.h - 232)
+      ctx.fillText(`${result.emoji}  ${result.label}`, cx, this.h - 232 - this.safeBottom)
 
       ctx.fillStyle = '#D4AC0D'
       ctx.font = 'bold 34px serif'
-      ctx.fillText(result.call || '', cx, this.h - 198)
+      ctx.fillText(result.call || '', cx, this.h - 198 - this.safeBottom)
 
       ctx.fillStyle = 'rgba(255,255,255,0.5)'
       ctx.font = '18px serif'
       const payoutStr = payout === Infinity ? '全部' : `${payout} 点`
-      ctx.fillText(payoutStr, cx, this.h - 170)
+      ctx.fillText(payoutStr, cx, this.h - 170 - this.safeBottom)
     }
   }
 
@@ -298,7 +297,7 @@ export class UI {
     const bw = 160
     const bh = 40
     const bx = (this.w - bw) / 2
-    const by = this.h - 148
+    const by = this.h - 148 - this.safeBottom
 
     ctx.fillStyle = 'rgba(212,172,13,0.15)'
     ctx.strokeStyle = 'rgba(212,172,13,0.4)'
@@ -324,7 +323,6 @@ export class UI {
 
     ctx.fillStyle = 'rgba(212,172,13,0.5)'
     ctx.font = '14px sans-serif'
-    ctx.fillText('苏州祖传骰子游戏', this.w / 2, 108)
   }
 
   spawnParticles(x, y, emojis, count = 10) {
@@ -399,7 +397,7 @@ export class UI {
     const bw = this.w - 64
     const bh = 52
     const bx = 32
-    const by = this.h - 148
+    const by = this.h - 148 - this.safeBottom
     return tx >= bx && tx <= bx + bw && ty >= by && ty <= by + bh
   }
 
@@ -407,7 +405,8 @@ export class UI {
     const bw = 160
     const bh = 40
     const bx = (this.w - bw) / 2
-    const by = this.h - 148
+    const by = this.h - 148 - this.safeBottom
     return tx >= bx && tx <= bx + bw && ty >= by && ty <= by + bh
   }
 }
+module.exports = { UI }

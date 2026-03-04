@@ -26,10 +26,11 @@
     "disableUseStrict": false,
     "useCompilerPlugins": false
   },
-  "compileType": "game",
+  "compileType": "miniprogram",
   "libVersion": "3.14.2",
-  "appid": "wx74733d59b5c6b96e",
+  "appid": "wx1169814cfce05ab5",
   "cloudfunctionRoot": "cloudfunctions/",
+  "cloudbaseEnv": "cloud1-0gqcenjqfe77a332",
   "projectname": "quickstart",
   "condition": {
     "search": {

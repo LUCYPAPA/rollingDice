@@ -22,6 +22,7 @@ exports.main = async (event, context) => {
       case 'nextTurn':    return await nextTurn(event, OPENID)
       case 'leaveRoom':   return await leaveRoom(event, OPENID)
       case 'getRoomInfo': return await getRoomInfo(event)
+      case 'initDB':      return await initDB()
       default: return { success: false, error: 'unknown action' }
     }
   } catch (e) {
@@ -320,4 +321,31 @@ function _evaluateDice(dice) {
     return { type: 'sanzi', label: '三子' + n, call: '三' + n + '！', emoji: '✨', amount: amounts[n] || 10 }
   }
   return { type: 'none', label: '轮空', call: '', emoji: '', amount: 0 }
+}
+// ── 初始化数据库（第一次部署后在控制台调用一次）─────────────────
+async function initDB() {
+  const collections = [
+    'rooms',           // 房间状态
+    'players',         // 玩家信息与余额
+    'game_logs',       // 对局记录
+    'balance_ledger',  // 余额流水审计
+    'security_logs',   // 违规记录
+    'admin_logs',      // 管理员操作日志
+  ]
+  const results = []
+
+  for (const name of collections) {
+    try {
+      await db.createCollection(name)
+      results.push({ collection: name, status: '创建成功' })
+    } catch (e) {
+      if (e.errCode === -502003 || (e.message && e.message.includes('exist'))) {
+        results.push({ collection: name, status: '已存在，跳过' })
+      } else {
+        results.push({ collection: name, status: '失败: ' + e.message })
+      }
+    }
+  }
+
+  return { success: true, results }
 }

@@ -1,0 +1,16 @@
+{
+  "pages": [
+    "pages/game/game"
+  ],
+  "window": {
+    "backgroundTextStyle": "dark",
+    "navigationBarBackgroundColor": "#1A0A06",
+    "navigationBarTitleText": "好婆叫侬来白相",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#1A0A06"
+  },
+  "cloud": true,
+  "sitemapLocation": "sitemap.json",
+  "style": "v2",
+  "componentFramework": "glass-easel"
+}

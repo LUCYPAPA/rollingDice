@@ -2,7 +2,7 @@
 // 联机层：微信云开发 + 云数据库实时监听
 // v1.1.0
 
-const DB_ENV = 'cloud1-0gw8283g4b8815c5'  // ← 替换为你的云开发环境ID
+const DB_ENV = 'cloud1-0gqcenjqfe77a332'  // ← 替换为你的云开发环境ID
 
 // db 和 rooms 懒加载，只有真正联机时才初始化，不影响本地单机版
 let _db = null
@@ -40,7 +40,7 @@ function buildRoomId(code) {
 }
 
 // ─────────────────────────────────────────
-export class Network {
+class Network {
   constructor() {
     this.openid = null
     this.nickname = null
@@ -225,3 +225,4 @@ export class Network {
     return p && p.openid === this.openid
   }
 }
+module.exports = { Network }

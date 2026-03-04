@@ -1,0 +1,9 @@
+<view class="container">
+  <canvas
+    type="2d"
+    id="gameCanvas"
+    class="game-canvas"
+    catchtouchstart="onTouchStart"
+    catchtouchend="onTouchEnd"
+  ></canvas>
+</view>

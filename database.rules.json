@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "rooms": {
+      "read": true,
+      "write": "auth.openid == null"
+    },
+    "players": {
+      "read": "auth.openid != null",
+      "write": "auth.openid == null"
+    },
+    "game_logs": {
+      "read": "auth.openid != null",
+      "write": "auth.openid == null"
+    },
+    "balance_ledger": {
+      "read": "auth.openid != null",
+      "write": "auth.openid == null"
+    },
+    "security_logs": {
+      "read": "auth.openid == null",
+      "write": "auth.openid == null"
+    },
+    "admin_logs": {
+      "read": "auth.openid == null",
+      "write": "auth.openid == null"
+    }
+  }
+}

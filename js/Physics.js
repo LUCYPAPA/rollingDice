@@ -1,6 +1,6 @@
 // js/Physics.js
 
-export class PhysicsDie {
+class PhysicsDie {
   constructor(value) {
     this.x = 0
     this.y = 0
@@ -17,7 +17,7 @@ export class PhysicsDie {
   }
 }
 
-export class PhysicsWorld {
+class PhysicsWorld {
   constructor(bowlX, bowlY, bowlRX, bowlRY) {
     this.bowlX = bowlX
     this.bowlY = bowlY
@@ -252,3 +252,4 @@ export class PhysicsWorld {
     this._separateSettled()
   }
 }
+module.exports = { PhysicsWorld, PhysicsDie }

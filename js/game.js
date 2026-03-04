@@ -2,11 +2,11 @@
 // v1.1.0：接入联机层（Network.js）+ 管理员面板（AdminPanel.js）
 // 原有单机逻辑完整保留，isOnline 标志切换两种模式
 
-import { UI } from './UI.js'
-import { PhysicsWorld, PhysicsDie } from './Physics.js'
-import { evaluateDice } from './Rules.js'
-import { Network } from './Network.js'
-import { AdminPanel } from './AdminPanel.js'
+const { UI } = require('./UI.js')
+const { PhysicsWorld } = require('./Physics.js')
+const { evaluateDice } = require('./Rules.js')
+const { Network } = require('./Network.js')
+const { AdminPanel } = require('./AdminPanel.js')
 
 // ── 游戏状态 ──────────────────────────────────────
 const STATE = {
@@ -19,24 +19,24 @@ const STATE = {
   WINNER: 'winner',
 }
 
-export default class Game {
-  constructor(canvas) {
+class Game {
+  constructor(canvas, logicW, logicH, dpr) {
     this.canvas = canvas
-
-    const logicW = canvas.width
-    const logicH = canvas.height
 
     // 读取安全区，避免灵动岛/刘海遮挡
     let safeTop = 60
+    let safeBottom = 0
     try {
       const info = wx.getWindowInfo()
       safeTop = (info.safeArea ? info.safeArea.top : 0) + 16
+      safeBottom = info.safeArea ? (info.screenHeight - info.safeArea.bottom) : 0
     } catch(e) {}
     this.safeTop = safeTop
+    this.safeBottom = safeBottom
 
-    this.ui = new UI(canvas, logicW, logicH, this.safeTop)
-    this.w = logicW
-    this.h = logicH
+    this.ui = new UI(canvas, logicW, logicH, this.safeTop, dpr, this.safeBottom)
+    this.w = logicW || 375   // 兜底：iPhone 逻辑宽
+    this.h = logicH || 812   // 兜底：iPhone 逻辑高
 
     // Bowl position
     this.bowlCX = this.w / 2
@@ -80,23 +80,25 @@ export default class Game {
     this._lobbyJoinCode = ''
     this._lobbyLoading = false
     this._lobbyError = ''
-
-    this._bindEvents()
   }
 
   start() {
-    // 不在启动时登录，只有玩家主动点「联机游戏」才触发网络请求
+    // 不在启动时登录，只有玩家主动点「联机」才触发网络请求
     this._loop()
   }
 
   // ── Main Loop ──────────────────────────────────
   _loop() {
+    // 小程序 type="2d" canvas 必须用 canvas.requestAnimationFrame
+    const raf = this.canvas.requestAnimationFrame
+      ? (cb) => this.canvas.requestAnimationFrame(cb)
+      : (cb) => setTimeout(cb, 16)
     const tick = () => {
       this._update()
       this._draw()
-      requestAnimationFrame(tick)
+      raf(tick)
     }
-    requestAnimationFrame(tick)
+    raf(tick)
   }
 
   _update() {
@@ -111,6 +113,8 @@ export default class Game {
   }
 
   _draw() {
+    // 尺寸未就绪时跳过，避免 createLinearGradient 收到 NaN/Infinity
+    if (!this.w || !this.h || !isFinite(this.w) || !isFinite(this.h)) return
     const ui = this.ui
     ui.clear()
 
@@ -228,12 +232,12 @@ export default class Game {
     ctx.textAlign = 'center'
     ctx.fillStyle = 'rgba(255,255,255,0.35)'
     ctx.font = '15px sans-serif'
-    ctx.fillText(`等待 ${name} 摇骰子...`, this.w / 2, this.h - 130)
+    ctx.fillText(`等待 ${name} 摇骰子...`, this.w / 2, this.h - 130 - (this.safeBottom || 0))
   }
 
   // ── Setup Screen ──────────────────────────────
   _drawSetup() {
-    const ctx = this.canvas.getContext('2d')
+    const ctx = this.ui.ctx
     const ui = this.ui
     const w = this.w
     const h = this.h
@@ -245,7 +249,6 @@ export default class Game {
     ctx.fillText('好婆叫侬来白相', w / 2, st + 36)
     ctx.fillStyle = 'rgba(212,172,13,0.5)'
     ctx.font = '13px sans-serif'
-    ctx.fillText('苏州祖传骰子游戏', w / 2, st + 62)
 
     ctx.strokeStyle = 'rgba(212,172,13,0.2)'
     ctx.lineWidth = 1
@@ -258,7 +261,7 @@ export default class Game {
     ctx.fillStyle = 'rgba(255,255,255,0.5)'
     ctx.font = '12px sans-serif'
     ctx.textAlign = 'left'
-    ctx.fillText('底池金额（每人）', 40, st + 104)
+    ctx.fillText('底池（每人）', 40, st + 104)
 
     ctx.fillStyle = 'rgba(255,255,255,0.07)'
     ctx.strokeStyle = this.setupFocus === 'stake' ? '#D4AC0D' : 'rgba(255,255,255,0.15)'
@@ -273,7 +276,7 @@ export default class Game {
     ctx.fillStyle = 'rgba(255,255,255,0.5)'
     ctx.font = '12px sans-serif'
     ctx.textAlign = 'left'
-    ctx.fillText('游戏模式', 40, st + 176)
+    ctx.fillText('模式', 40, st + 176)
 
     const modes = [['classic', '经典版'], ['battle', '对决版']]
     modes.forEach(([m, label], i) => {
@@ -339,7 +342,7 @@ export default class Game {
     }
 
     // ── 底部两个按钮：单机 / 联机 ──────────────────
-    const btnY = h - 148
+    const btnY = h - 148 - (this.safeBottom || 0)
     // 单机开始
     const grad = ctx.createLinearGradient(40, btnY, 40, btnY + 52)
     grad.addColorStop(0, '#D4AC0D')
@@ -361,7 +364,7 @@ export default class Game {
     ctx.fillStyle = '#FF6B5B'
     ctx.font = 'bold 18px serif'
     ctx.textAlign = 'center'
-    ctx.fillText('🌐  联 机 游 戏', w / 2, btnY + 94)
+    ctx.fillText('🌐  联  机', w / 2, btnY + 94)
   }
 
   // ── 联机大厅 ────────────────────────────────────
@@ -379,7 +382,7 @@ export default class Game {
     ctx.fillText('好婆叫侬来白相', w / 2, st + 36)
     ctx.fillStyle = 'rgba(212,172,13,0.5)'
     ctx.font = '13px sans-serif'
-    ctx.fillText('联机游戏大厅', w / 2, st + 60)
+    ctx.fillText('联机大厅', w / 2, st + 60)
 
     // 返回按钮
     ctx.fillStyle = 'rgba(255,255,255,0.08)'
@@ -458,26 +461,46 @@ export default class Game {
 
   // ── Events ─────────────────────────────────────
   _bindEvents() {
-    wx.onTouchStart(e => this._onTouch(e.touches[0]))
-    wx.onTouchEnd(() => { this.rollPressed = false })
+    // 事件现在由 Page 直接调用 onTouchStart / onTouchEnd / onHide / onShow
+  }
 
-    wx.onHide(() => { this._wasHidden = true })
-    wx.onShow(() => {
-      if (this._wasHidden && this.state !== STATE.SETUP && this.state !== STATE.LOBBY) {
-        this._wasHidden = false
-        wx.showModal({
-          title: '继续游戏？',
-          content: '要继续当前游戏还是退出？',
-          confirmText: '继续',
-          cancelText: '退出',
-          success: (res) => {
-            if (!res.confirm) wx.exitMiniProgram()
-          }
-        })
-      } else {
-        this._wasHidden = false
-      }
-    })
+  // ── 供 Page 调用的公开方法 ─────────────────────
+  onTouchStart(touch) {
+    this._onTouch(touch)
+  }
+
+  onTouchEnd() {
+    this.rollPressed = false
+  }
+
+  onHide() {
+    this._wasHidden = true
+  }
+
+  onShow() {
+    if (this._wasHidden && this.state !== STATE.SETUP && this.state !== STATE.LOBBY) {
+      this._wasHidden = false
+      wx.showModal({
+        title: '继续？',
+        content: '要继续当前局还是退出？',
+        confirmText: '继续',
+        cancelText: '退出',
+        success: (res) => {
+          if (!res.confirm) wx.navigateBack()
+        }
+      })
+    } else {
+      this._wasHidden = false
+    }
+  }
+
+  destroy() {
+    this._clearAutoRollTimer()
+    if (this.network) this.network.leaveRoom().catch(() => {})
+  }
+
+  _bindEvents() {
+    // 已迁移到 Page 的 bindtouchstart/bindtouchend，此方法保留空壳
   }
 
   _onTouch(touch) {
@@ -510,8 +533,8 @@ export default class Game {
     // 退出按钮优先（在标题区判断之前，避免被拦截）
     if (this.state !== STATE.SETUP && this.ui.hitTestExitButton(tx, ty)) {
       wx.showModal({
-        title: '退出游戏',
-        content: '确定退出当前游戏？',
+        title: '退出',
+        content: '确定退出当前局？',
         confirmText: '退出',
         cancelText: '继续',
         confirmColor: '#C0392B',
@@ -616,7 +639,7 @@ export default class Game {
             wx.showModal({
               title: '自定义底池',
               editable: true,
-              placeholderText: '输入金额',
+              placeholderText: '输入数额',
               success: r => {
                 if (r.confirm && r.content) {
                   const v = parseInt(r.content)
@@ -668,7 +691,7 @@ export default class Game {
     }
 
     // 单机开始
-    const btnY = h - 148
+    const btnY = h - 148 - (this.safeBottom || 0)
     if (ty >= btnY && ty <= btnY + 52) {
       this.isOnline = false
       this._startGame()
@@ -1058,3 +1081,4 @@ export default class Game {
     return p ? (p.nickname || p.name || '玩家') : ''
   }
 }
+module.exports = Game

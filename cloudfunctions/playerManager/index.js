@@ -12,7 +12,7 @@ const players  = db.collection('players')
 const logs     = db.collection('game_logs')
 const secLogs  = db.collection('security_logs')  // 违规记录
 
-const ADMIN_PASSWORD_HASH = 'REPLACE_WITH_YOUR_SHA256_HASH'
+const ADMIN_PASSWORD_HASH = 'eaccb36965fd47a8742aee399b70b02a1eb848c2ed33ffcf824d55443335a501'
 
 exports.main = async (event, context) => {
   const { action } = event
@@ -247,7 +247,7 @@ async function searchPlayers(event, adminOpenid) {
 // ─────────────────────────────────────────
 async function adminUpdateBalance(event, adminOpenid) {
   const { targetOpenid, delta, reason } = event
-  if (typeof delta !== 'number') return { success: false, error: '无效金额' }
+  if (typeof delta !== 'number') return { success: false, error: '无效数值' }
   if (Math.abs(delta) > 100000) return { success: false, error: '单次变动不可超过10万点' }
 
   const targetRes = await players.doc(targetOpenid).get()

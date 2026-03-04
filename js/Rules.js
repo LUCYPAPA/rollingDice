@@ -1,6 +1,6 @@
 // js/Rules.js - 完整规则引擎，优先级已修正，含葫芦规则
 
-export function evaluateDice(dice) {
+function evaluateDice(dice) {
   const counts = {}
   for (let d of dice) counts[d] = (counts[d] || 0) + 1
   const fours = counts[4] || 0
@@ -82,3 +82,4 @@ export function evaluateDice(dice) {
 
   return { type: 'none', call: '空屁一只', label: '轮空', amount: 0, emoji: '💨' }
 }
+module.exports = { evaluateDice }
