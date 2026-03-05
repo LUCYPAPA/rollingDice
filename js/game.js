@@ -84,6 +84,10 @@ class Game {
 
     // 联机：服务端骰子去重键，避免反复重播/本地结算干扰
     this._lastServerDiceKey = ''
+
+    // 联机：发起摇骰后的服务端回包保护，避免网络/权限失败把UI锁死在 rolling
+    this._pendingServerRoll = false
+    this._serverRollTimeout = null
   }
 
   start() {
@@ -1125,6 +1129,11 @@ class Game {
     this.round = roomData.round || this.round
     this.pool = roomData.pool || 0
 
+    // 以云端 hostOpenid 为准，确保“终止”只对房主可见/可点
+    if (this.isOnline && roomData && roomData.hostOpenid && this.network && this.network.openid) {
+      this._isHost = roomData.hostOpenid === this.network.openid
+    }
+
     // 等待室：同步已加入玩家列表
     if (this._lobbyView === 'waiting' && roomData.players) {
       this._waitingPlayers = roomData.players.map(p => ({ openid: p.openid, nickname: p.nickname, avatarUrl: p.avatarUrl || '', isBot: !!p.isBot }))
@@ -1145,6 +1154,16 @@ class Game {
     }))
     this.currentPlayer = roomData.currentPlayerIndex
 
+    // waiting：进入下一位/下一轮，清掉上一手结果并恢复可操作状态
+    if (roomData.phase === 'waiting' && this.state !== STATE.SETUP && this.state !== STATE.LOBBY && this.state !== STATE.WINNER) {
+      this.lastResult = null
+      this.lastPayout = 0
+      this.rollPressed = false
+      // diceValues 由服务端维护（nextTurn 会重置为默认），这里不主动改
+      this.physics = null
+      this.state = STATE.IDLE
+    }
+
     // 同步服务端骰子值：对自己/他人都生效，避免本地随机动画与云端结算不一致
     if (Array.isArray(roomData.diceValues) && roomData.diceValues.length) {
       const key = `${roomData.phase || ''}|${roomData.diceValues.join(',')}`
@@ -1154,9 +1173,8 @@ class Game {
         if (roomData.phase === 'rolling') {
           this._playRemoteDice(roomData.diceValues)
         } else if (roomData.phase === 'settled') {
-          this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
-          this.physics.spawnAll(roomData.diceValues)
-          if (typeof this.physics._forceSettle === 'function') this.physics._forceSettle()
+          // settled：不要重新生成物理骰子（会“重置”位置/观感怪），直接静态展示点数即可
+          this.physics = null
         }
       }
     }
@@ -1179,6 +1197,8 @@ class Game {
 
     // 结算
     if (roomData.lastResult && roomData.phase === 'settled') {
+      clearTimeout(this._serverRollTimeout)
+      this._pendingServerRoll = false
       this.lastResult = roomData.lastResult
       this.lastPayout = roomData.lastPayout || 0
       this.state = STATE.RESULT
@@ -1356,7 +1376,29 @@ class Game {
     // 联机模式：通知云端"该我摇了"，云端生成骰子值后推送给所有人
     // 本地先播动画，watch 回调收到真实骰子值后以云端为准
     if (this.isOnline) {
-      this.network.rollDice([]).catch(e => console.error('rollDice err', e))
+      this._pendingServerRoll = true
+      clearTimeout(this._serverRollTimeout)
+      this._serverRollTimeout = setTimeout(() => {
+        // 7秒还没等到云端推送（或调用失败），回退到可操作态
+        if (this._pendingServerRoll && this.state === STATE.ROLLING) {
+          this._pendingServerRoll = false
+          this.physics = null
+          this.state = STATE.IDLE
+          wx.showToast({ title: '联机结算超时，请重试', icon: 'none' })
+          this._startAutoRollTimer()
+        }
+      }, 7000)
+
+      this.network.rollDice([]).catch((e) => {
+        console.error('rollDice err', e)
+        clearTimeout(this._serverRollTimeout)
+        this._pendingServerRoll = false
+        // 回退：避免卡死
+        this.physics = null
+        this.state = STATE.IDLE
+        wx.showToast({ title: '摇骰失败，请重试', icon: 'none' })
+        this._startAutoRollTimer()
+      })
     }
 
     try {

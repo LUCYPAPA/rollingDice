@@ -231,6 +231,10 @@ async function nextTurn(event, openid) {
     data: {
       currentPlayerIndex: nextIdx,
       phase: 'waiting',
+      // 下一位开始：清掉上一手结算，骰子回到默认显示（和单机的“等下一位再重置”一致）
+      lastResult: null,
+      lastPayout: 0,
+      diceValues: [1, 2, 3, 4, 5, 6],
       round: nextIdx === 0 ? _.inc(1) : room.round,
       updatedAt: db.serverDate(),
     }
