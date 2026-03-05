@@ -66,7 +66,7 @@ async function createRoom(event, openid) {
       maxPlayers,
       currentPlayerIndex: 0,
       phase: 'waiting',
-      diceValues: [1, 1, 1, 1, 1],
+      diceValues: [1, 1, 1, 1, 1, 1],
       lastResult: null,
       lastPayout: 0,
       pool: 0,
@@ -141,7 +141,7 @@ async function rollDice(event, openid) {
   const currentPlayer = room.players[room.currentPlayerIndex]
   if (currentPlayer.openid !== openid) return { success: false, error: '还没到你的回合' }
   if (room.phase !== 'waiting' && room.phase !== 'settled') return { success: false, error: '请等待当前操作完成' }
-  const diceValues = Array.from({ length: 5 }, () => Math.ceil(Math.random() * 6))
+  const diceValues = Array.from({ length: 6 }, () => Math.ceil(Math.random() * 6))
   return rollDiceForPlayer(room, roomId, openid, diceValues)
 }
 
@@ -304,34 +304,85 @@ async function _finishGame(roomId, room, winnerOpenid) {
 // 骰子规则（云端版，与前端 Rules.js 保持同步）
 function _evaluateDice(dice) {
   const counts = {}
-  dice.forEach(v => { counts[v] = (counts[v] || 0) + 1 })
-  const vals = Object.values(counts).sort((a, b) => b - a)
-  const keys = Object.keys(counts).map(Number)
+  for (let d of dice) counts[d] = (counts[d] || 0) + 1
+  const fours = counts[4] || 0
+  const sorted = [...dice].sort((a, b) => a - b).join('')
 
-  if (vals[0] === 5) {
-    const n = keys[0]
-    return { type: 'wuzi', label: '五子' + n, call: '五子' + n + '！', emoji: '🎰', amount: Infinity }
+  // ── 红4主线（4个及以上最高优先）──────────────────
+  if (fours === 6) return { type: 'jackpot', call: '六红，夯特！', label: '六个4', amount: Infinity, emoji: '🎰' }
+  if (fours === 5) return { type: 'win', call: '五红！！！',  label: '五个4', amount: 64, emoji: '🔥' }
+  if (fours === 4) return { type: 'win', call: '四红！！',    label: '四个4', amount: 32, emoji: '💥' }
+
+  // ── 格子（两个三条，3+3）优先于三个4 ─────────────
+  const tripleEntries = Object.entries(counts).filter(([k, v]) => v === 3)
+  if (tripleEntries.length === 2) {
+    const hasFourTriple = counts[4] === 3
+    if (hasFourTriple) {
+      return { type: 'win', call: '红格二十四！', label: '红格（三个4+三条）', amount: 24, emoji: '🔴' }
+    }
+    return { type: 'win', call: '格子十六！', label: '格子（两个三条）', amount: 16, emoji: '🎲' }
   }
-  if (dice.filter(v => v === 1).length >= 1 && [1,2,3,4,5].every(v => dice.includes(v))) {
-    return { type: 'zhuangyuan', label: '状元插金花', call: '状元！', emoji: '🏅', amount: Infinity }
+
+  // ── 三个4（非格子型）─────────────────────────────
+  if (fours === 3) return { type: 'win', call: '三红！', label: '三个4', amount: 8, emoji: '🎯' }
+
+  // ── 特殊牌型（优先于1-2个4）──────────────────────
+  if (sorted === '123456') return { type: 'win', call: '八洞！',   label: '顺子123456',  amount: 16, emoji: '🌈' }
+  if (sorted === '223366') return { type: 'win', call: '腻三靠！', label: '二三Call',     amount: 16, emoji: '📣' }
+  if (sorted === '112233') return { type: 'win', call: '一两三！', label: '连对112233',   amount: 16, emoji: '🎊' }
+  if (sorted === '445566') return { type: 'win', call: '四五六！', label: '连对445566',   amount: 19, emoji: '🎊' }
+
+  // 三对
+  const pairCount = Object.values(counts).filter(c => c >= 2).length
+  if (pairCount === 3) {
+    const hasFourPair = (counts[4] || 0) >= 2
+    if (hasFourPair) return { type: 'win', call: '红三对！', label: '三对含一对4', amount: 11, emoji: '🎭' }
+    return { type: 'win', call: '三对！', label: '三对', amount: 8, emoji: '🎭' }
   }
-  if (vals[0] === 4) {
-    const n = keys.find(k => counts[k] === 4)
-    const amounts = { 1:80, 2:40, 3:30, 4:20, 5:30, 6:40 }
-    return { type: 'sizi', label: '四子' + n, call: '四子' + n + '！', emoji: '🎯', amount: amounts[n] || 20 }
+
+  // ── 六条（非4）────────────────────────────────────
+  const sixKind = Object.entries(counts).find(([k, v]) => v === 6 && k !== '4')
+  if (sixKind) return { type: 'win', call: '六十四！！！', label: `六个${sixKind[0]}`, amount: 64, emoji: '🌟' }
+
+  // ── 五条（非4），剩余1骰可能是4加成 ───────────────
+  const fiveKind = Object.entries(counts).find(([k, v]) => v === 5 && k !== '4')
+  if (fiveKind) {
+    const extra = fours >= 1 ? 1 : 0
+    return {
+      type: 'win',
+      call: extra ? '三十三！！' : '三十两！',
+      label: `五个${fiveKind[0]}${extra ? '+1红' : ''}`,
+      amount: 32 + extra,
+      emoji: '🌟'
+    }
   }
-  if (counts[1] >= 3) {
-    return { type: 'sanhong', label: '三红', call: '三红！', emoji: '🔴', amount: 60 }
+
+  // ── 四条（非4），剩余2骰可能含4加成或升级 ─────────
+  const fourKind = Object.entries(counts).find(([k, v]) => v === 4 && k !== '4')
+  if (fourKind) {
+    const n = parseInt(fourKind[0])
+    const remaining = dice.filter(d => d !== n)
+    const remSum = remaining.reduce((a, b) => a + b, 0)
+    const remFours = remaining.filter(d => d === 4).length
+    let base = 16, upgraded = false
+    if (remaining.length === 2 && remSum === n) { base = 32; upgraded = true }
+    let fourBonus = remFours === 1 ? 1 : remFours === 2 ? 3 : 0
+    const total = base + fourBonus
+    let call, label
+    if (upgraded) {
+      call = fourBonus ? '三十三！！' : `格${n}！！！`
+      label = `四个${n}升级${fourBonus ? '+1红' : ''}`
+    } else if (total === 19) { call = '十九～'; label = `四个${n}+2红` }
+    else if (total === 17) { call = '十七～'; label = `四个${n}+1红` }
+    else { call = '十六～'; label = `四个${n}` }
+    return { type: 'win', call, label, amount: total, emoji: upgraded ? '⬆️' : '🎯' }
   }
-  if (keys.length === 6) {
-    return { type: 'duitang', label: '对堂', call: '对堂！', emoji: '🌈', amount: 60 }
-  }
-  if (vals[0] === 3 && keys.find(k => counts[k] === 3) !== 1) {
-    const n = keys.find(k => counts[k] === 3)
-    const amounts = { 2:10, 3:10, 4:10, 5:20, 6:20 }
-    return { type: 'sanzi', label: '三子' + n, call: '三' + n + '！', emoji: '✨', amount: amounts[n] || 10 }
-  }
-  return { type: 'none', label: '轮空', call: '', emoji: '', amount: 0 }
+
+  // ── 红4兜底（1-2个4，无更优牌型）─────────────────
+  if (fours === 2) return { type: 'win', call: '两红', label: '两个4', amount: 3, emoji: '✨' }
+  if (fours === 1) return { type: 'win', call: '一红', label: '一个4', amount: 1, emoji: '🎲' }
+
+  return { type: 'none', call: '空屁一只', label: '轮空', amount: 0, emoji: '💨' }
 }
 // ── 房主开始游戏 ──────────────────────────────────────────────────
 async function abortGame(event, openid) {
@@ -420,7 +471,7 @@ async function botRoll(event, openid) {
   }
 
   // 用云端随机生成骰子（防作弊逻辑与真人一致）
-  const diceValues = Array.from({ length: 5 }, () => Math.floor(Math.random() * 6) + 1)
+  const diceValues = Array.from({ length: 6 }, () => Math.floor(Math.random() * 6) + 1)
 
   // 复用 rollDice 的结算逻辑，传入机器人 openid
   return await rollDiceForPlayer(room, roomId, botOpenid, diceValues)

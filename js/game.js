@@ -81,6 +81,9 @@ class Game {
     this._lobbyLoading = false
     this._lobbyError = ''
     this._isHost = false         // 是否是房主
+
+    // 联机：服务端骰子去重键，避免反复重播/本地结算干扰
+    this._lastServerDiceKey = ''
   }
 
   start() {
@@ -628,11 +631,6 @@ class Game {
     }
   }
 
-  destroy() {
-    this._clearAutoRollTimer()
-    if (this.network) this.network.leaveRoom().catch(() => {})
-  }
-
   _bindEvents() {
     // 已迁移到 Page 的 bindtouchstart/bindtouchend，此方法保留空壳
   }
@@ -1147,8 +1145,25 @@ class Game {
     }))
     this.currentPlayer = roomData.currentPlayerIndex
 
+    // 同步服务端骰子值：对自己/他人都生效，避免本地随机动画与云端结算不一致
+    if (Array.isArray(roomData.diceValues) && roomData.diceValues.length) {
+      const key = `${roomData.phase || ''}|${roomData.diceValues.join(',')}`
+      if (key !== this._lastServerDiceKey) {
+        this._lastServerDiceKey = key
+        this.diceValues = roomData.diceValues
+        if (roomData.phase === 'rolling') {
+          this._playRemoteDice(roomData.diceValues)
+        } else if (roomData.phase === 'settled') {
+          this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
+          this.physics.spawnAll(roomData.diceValues)
+          if (typeof this.physics._forceSettle === 'function') this.physics._forceSettle()
+        }
+      }
+    }
+
     // 轮到机器人时，房主客户端自动代为摇骰子（1秒延迟模拟思考）
-    const botPhase = roomData.phase === 'waiting' || roomData.phase === 'settled'
+    // 机器人只在 waiting 阶段需要“出手”，settled 阶段应等待 nextTurn，避免重复摇导致观感异常
+    const botPhase = roomData.phase === 'waiting'
     if (this._isHost && botPhase && roomData.players) {
       const cur = roomData.players[roomData.currentPlayerIndex]
       if (cur && cur.isBot) {
@@ -1157,8 +1172,8 @@ class Game {
       }
     }
 
-    // 其他玩家摇了骰子 → 在本地播放骰子动画
-    if (roomData.phase === 'rolling' && !this._isMyTurn()) {
+    // 播放服务端骰子动画（rolling 时）
+    if (roomData.phase === 'rolling') {
       this._playRemoteDice(roomData.diceValues)
     }
 
@@ -1179,6 +1194,11 @@ class Game {
     if (roomData.status === 'finished') {
       this.state = STATE.WINNER
     }
+
+    // waiting：轮到自己时启动倒计时（联机只给当前玩家计时）
+    if (this.isOnline && roomData.phase === 'waiting' && this.state === STATE.IDLE && this._isMyTurn()) {
+      this._startAutoRollTimer()
+    }
   }
 
   async _triggerBotRoll() {
@@ -1189,7 +1209,7 @@ class Game {
       // 先在本地播摇骰动画（随机值，稍后用云端结果覆盖）
       this.state = STATE.ROLLING
       this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
-      this.physics.spawnAll([1,1,1,1,1])
+      this.physics.spawnAll(Array.from({ length: 6 }, () => Math.ceil(Math.random() * 6)))
 
       const res = await wx.cloud.callFunction({
         name: 'roomManager',
@@ -1254,7 +1274,7 @@ class Game {
   }
 
   _playRemoteDice(values) {
-    if (this.state === STATE.ROLLING) return
+    if (!Array.isArray(values) || values.length === 0) return
     this.state = STATE.ROLLING
     this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
     this.physics.spawnAll(values)
@@ -1353,6 +1373,13 @@ class Game {
   _finishRoll() {
     const finalValues = this.physics.dice.map(d => d.value)
     this.diceValues = finalValues
+
+    // 联机模式：结算与加钱以云端为准（否则下一位时会被云端状态覆盖，表现为“重置”）
+    if (this.isOnline) {
+      // 清掉 physics，避免 ROLLING 状态下每帧重复触发 _finishRoll()
+      this.physics = null
+      return
+    }
 
     const result = evaluateDice(finalValues)
     this.lastResult = result
