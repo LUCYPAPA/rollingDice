@@ -1,18 +1,15 @@
+const app = getApp()
 const Game = require('../../js/game.js')
 
 Page({
   _game: null,
-  _nicknameResolve: null,  // 等待昵称输入的 Promise resolve
 
-  data: {
-    showNicknamePanel: false,
-    tempNickname: '',
-    tempAvatarUrl: '',
-  },
+  data: {},
 
-  onLoad() {
+  onLoad(options) {
     this._windowInfo = wx.getWindowInfo()
     this._deviceInfo = wx.getDeviceInfo()
+    this._joinCode = options.roomCode || ''
   },
 
   onReady() {
@@ -32,52 +29,33 @@ Page({
         canvas.height = h * dpr
 
         this._game = new Game(canvas, w, h, dpr)
-        // 把昵称收集函数注入给 Game，供 Network.login 调用
-        this._game.collectNickname = () => this._showNicknamePanel()
+        this._game.collectNickname = () => this._openProfilePage()
         this._game.start()
+
+        if (this._joinCode) {
+          setTimeout(() => this._game.autoJoinRoom(this._joinCode), 500)
+        }
       })
   },
 
-  // 显示昵称面板，返回 Promise，resolve 时带 { nickname, avatarUrl }
-  _showNicknamePanel() {
-    return new Promise(resolve => {
-      this._nicknameResolve = resolve
-      this.setData({ showNicknamePanel: true, tempNickname: '', tempAvatarUrl: '' })
+  _openProfilePage() {
+    // 有缓存直接用，无缓存才跳 profile 页
+    let cached = null
+    try { cached = wx.getStorageSync('userProfile') } catch(e) {}
+    if (cached && cached.nickname) {
+      return Promise.resolve({ nickname: cached.nickname, avatarUrl: cached.avatarUrl || '' })
+    }
+    return new Promise((resolve) => {
+      app.setProfileCallback(resolve)
+      wx.navigateTo({
+        url: '/pages/profile/profile',
+        fail: (err) => {
+          console.error('navigate profile fail', err)
+          app.setProfileCallback(null)
+          resolve({ nickname: '', avatarUrl: '' })
+        }
+      })
     })
-  },
-
-  onChooseAvatar(e) {
-    this.setData({ tempAvatarUrl: e.detail.avatarUrl })
-  },
-
-  onNicknameInput(e) {
-    this.setData({ tempNickname: e.detail.value })
-  },
-
-  onNicknameBlur(e) {
-    this.setData({ tempNickname: e.detail.value })
-  },
-
-  onNicknameConfirm() {
-    const nick = this.data.tempNickname.trim()
-    if (!nick) {
-      wx.showToast({ title: '请输入昵称', icon: 'none' })
-      return
-    }
-    this.setData({ showNicknamePanel: false })
-    if (this._nicknameResolve) {
-      this._nicknameResolve({ nickname: nick, avatarUrl: this.data.tempAvatarUrl })
-      this._nicknameResolve = null
-    }
-  },
-
-  onNicknameCancel() {
-    this.setData({ showNicknamePanel: false })
-    if (this._nicknameResolve) {
-      // 取消时传空，login 会用 openid 后6位兜底
-      this._nicknameResolve({ nickname: '', avatarUrl: '' })
-      this._nicknameResolve = null
-    }
   },
 
   onTouchStart(e) {
@@ -98,5 +76,16 @@ Page({
 
   onUnload() {
     if (this._game) this._game.destroy()
-  }
+  },
+
+  onShareAppMessage() {
+    const code = this._game && this._game.activityCode
+    if (code) {
+      return {
+        title: `快来和我一起白相！房间号：${code}`,
+        path: `/pages/game/game?roomCode=${code}`,
+      }
+    }
+    return { title: '好婆叫侬来白相', path: '/pages/game/game' }
+  },
 })

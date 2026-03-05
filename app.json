@@ -1,6 +1,7 @@
 {
   "pages": [
-    "pages/game/game"
+    "pages/game/game",
+    "pages/profile/profile"
   ],
   "window": {
     "backgroundTextStyle": "dark",

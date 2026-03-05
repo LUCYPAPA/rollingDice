@@ -52,27 +52,24 @@ class Network {
   }
 
   // ── 1. 登录并同步玩家信息 ──────────────────────
-  async login(collectNickname) {
+  async login(collectNickname, onStartLoading) {
     getDB()
 
-    // 第一步：先登录拿到 openid
-    const loginRes = await wx.cloud.callFunction({
-      name: 'playerManager',
-      data: { action: 'login', nickname: '', avatarUrl: '' }
-    })
-    this.openid = loginRes.result.openid
-    const fallbackNick = '玩家' + this.openid.slice(-6)
-
-    // 第二步：通过 Page 注入的原生 input 面板收集昵称
+    // 第一步：先弹昵称页（不依赖 openid）
     if (typeof collectNickname === 'function') {
       const result = await collectNickname()
-      this.nickname = result.nickname || fallbackNick
+      this.nickname = result.nickname || ''
       this.avatarUrl = result.avatarUrl || ''
-    } else {
-      this.nickname = fallbackNick
     }
 
-    // 第三步：把最终昵称同步到云端
+    // 昵称收集完毕，显示 loading
+    if (typeof onStartLoading === 'function') onStartLoading()
+
+    // 第二步：登录云函数（拿 openid + 同步昵称一步完成）
+    const fallbackNick = this.nickname || ''
+    console.log('[Network] login start, nickname=', this.nickname)
+
+    // 同步昵称到云端
     try {
       const res = await wx.cloud.callFunction({
         name: 'playerManager',
@@ -86,7 +83,21 @@ class Network {
         throw new Error(res.result.error || '内容安全检测未通过')
       }
       this.openid = res.result.openid
-      if (res.result.nickname) this.nickname = res.result.nickname
+      // 昵称以本地输入为准，为空时才用 openid 后6位兜底
+      if (!this.nickname) this.nickname = this.openid.slice(-6)
+      // 头像同理，本地选的优先
+      if (!this.avatarUrl && res.result.avatarUrl) this.avatarUrl = res.result.avatarUrl
+      // 首次赠礼提示
+      if (res.result.gift) {
+        wx.showToast({ title: `🎁 首次联机赠送 ${res.result.gift} 点！`, icon: 'none', duration: 2500 })
+      }
+      // 写入缓存（唯一写入点）
+      try {
+        wx.setStorageSync('userProfile', {
+          nickname: this.nickname,
+          avatarUrl: this.avatarUrl || '',
+        })
+      } catch(e) {}
       return res.result
     } catch (e) {
       console.error('[Network] login failed', e)
@@ -193,6 +204,28 @@ class Network {
   }
 
   // ── 7. 离开房间 ────────────────────────────────
+  // 中途结束游戏
+  async abortGame() {
+    const res = await wx.cloud.callFunction({
+      name: 'roomManager',
+      data: { action: 'abortGame', roomId: this.currentRoomId }
+    })
+    return res.result
+  }
+
+  // 添加机器人
+  async addBot() {
+    const res = await wx.cloud.callFunction({
+      name: 'roomManager',
+      data: {
+        action: 'addBot',
+        roomId: this.currentRoomId,
+        hostOpenid: this.openid,
+      }
+    })
+    return res.result
+  }
+
   // 房主开始游戏
   async startGame() {
     const res = await wx.cloud.callFunction({
@@ -224,25 +257,45 @@ class Network {
   // ── 内部：实时监听房间变化 ─────────────────────
   _watchRoom(roomId) {
     this._stopWatch()
-    this._watcher = getDB().rooms.doc(roomId).watch({
-      onChange: (snapshot) => {
-        const doc = snapshot.docs[0]
-        if (doc && this.onRoomUpdate) {
-          this.onRoomUpdate(doc)
+    this._watchRetries = (this._watchRetries || 0)
+    clearTimeout(this._watchRetryTimer)
+
+    try {
+      this._watcher = getDB().rooms.doc(roomId).watch({
+        onChange: (snapshot) => {
+          this._watchRetries = 0  // 收到数据说明连接正常，重置重试计数
+          const doc = snapshot.docs[0]
+          if (doc && this.onRoomUpdate) {
+            this.onRoomUpdate(doc)
+          }
+        },
+        onError: (err) => {
+          console.error('[Network] watch error', err)
+          this._stopWatch()  // 先彻底关掉旧的 watcher
+
+          this._watchRetries++
+          if (this._watchRetries > 10) {
+            // 超过10次放弃，通知用户
+            if (this.onError) this.onError('网络连接已断开，请退出重进')
+            return
+          }
+          // 指数退避：1s 2s 4s 8s ... 最大16s
+          const delay = Math.min(1000 * Math.pow(2, this._watchRetries - 1), 16000)
+          this._watchRetryTimer = setTimeout(() => this._watchRoom(roomId), delay)
         }
-      },
-      onError: (err) => {
-        console.error('[Network] watch error', err)
-        if (this.onError) this.onError('网络断开，请重新连接')
-        // 3秒后自动重连
-        setTimeout(() => this._watchRoom(roomId), 3000)
-      }
-    })
+      })
+    } catch(e) {
+      console.error('[Network] watch init fail', e)
+      this._watchRetries++
+      const delay = Math.min(1000 * Math.pow(2, this._watchRetries - 1), 16000)
+      this._watchRetryTimer = setTimeout(() => this._watchRoom(roomId), delay)
+    }
   }
 
   _stopWatch() {
+    clearTimeout(this._watchRetryTimer)
     if (this._watcher) {
-      this._watcher.close()
+      try { this._watcher.close() } catch(e) {}
       this._watcher = null
     }
   }

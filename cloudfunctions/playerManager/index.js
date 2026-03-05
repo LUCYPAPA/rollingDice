@@ -12,7 +12,7 @@ const players  = db.collection('players')
 const logs     = db.collection('game_logs')
 const secLogs  = db.collection('security_logs')  // 违规记录
 
-const ADMIN_PASSWORD_HASH = 'eaccb36965fd47a8742aee399b70b02a1eb848c2ed33ffcf824d55443335a501'
+const ADMIN_PASSWORD_HASH = 'REPLACE_WITH_YOUR_SHA256_HASH'
 
 exports.main = async (event, context) => {
   const { action } = event
@@ -175,13 +175,14 @@ async function login(event, openid) {
         openid,
         nickname: defaultNickname,
         avatarUrl: avatarUrl || '',
-        balance: 1000,
+        balance: 100,          // 首次联机赠送 100 点
         gamesPlayed: 0,
+        firstOnlineGift: true, // 已领取首次赠礼标记
         createdAt: now,
         lastSeen: now,
       }
     })
-    return { success: true, openid, balance: 1000, nickname: defaultNickname, isNew: true }
+    return { success: true, openid, balance: 100, nickname: defaultNickname, isNew: true, gift: 100 }
   } else {
     await players.doc(openid).update({
       data: {
@@ -195,6 +196,7 @@ async function login(event, openid) {
       openid,
       balance: existing.data.balance,
       nickname: existing.data.nickname,
+      avatarUrl: existing.data.avatarUrl || '',
       isNew: false,
     }
   }

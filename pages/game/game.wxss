@@ -16,3 +16,115 @@
   top: 0;
   left: 0;
 }
+
+/* 昵称收集浮层 */
+.nickname-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.nickname-card {
+  background: #2A1208;
+  border: 1px solid rgba(212,172,13,0.35);
+  border-radius: 20px;
+  padding: 36rpx 40rpx 28rpx;
+  width: 620rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.nickname-title {
+  color: #D4AC0D;
+  font-size: 34rpx;
+  font-weight: bold;
+}
+
+.nickname-hint {
+  color: rgba(255,255,255,0.4);
+  font-size: 24rpx;
+  margin-top: -10rpx;
+}
+
+.avatar-btn {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+  margin: 10rpx 0;
+}
+
+.avatar-btn::after {
+  border: none;
+}
+
+.avatar-img {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 60rpx;
+  border: 2px solid rgba(212,172,13,0.4);
+}
+
+.avatar-placeholder {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 60rpx;
+  border: 2px dashed rgba(212,172,13,0.4);
+  background: rgba(212,172,13,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-placeholder-text {
+  color: rgba(212,172,13,0.5);
+  font-size: 24rpx;
+}
+
+.avatar-label {
+  color: rgba(255,255,255,0.4);
+  font-size: 22rpx;
+}
+
+.nickname-input {
+  width: 100%;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 12rpx;
+  padding: 22rpx 24rpx;
+  color: #FFFFFF;
+  font-size: 30rpx;
+  box-sizing: border-box;
+}
+
+.nickname-confirm {
+  width: 100%;
+  background: #C0392B !important;
+  color: #FFFFFF !important;
+  border-radius: 12rpx !important;
+  font-size: 30rpx !important;
+  font-weight: bold !important;
+  margin-top: 8rpx;
+}
+
+.nickname-cancel {
+  width: 100%;
+  background: transparent !important;
+  color: rgba(255,255,255,0.35) !important;
+  border: none !important;
+  font-size: 26rpx !important;
+  margin-top: -10rpx;
+}
+
+.nickname-cancel::after {
+  border: none;
+}

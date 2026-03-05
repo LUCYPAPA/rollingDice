@@ -1,0 +1,30 @@
+<view class="page">
+
+  <text class="title">设置游戏昵称</text>
+  <text class="hint">昵称和头像将显示在联机房间里</text>
+
+  <button class="avatar-wrap" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+    <image wx:if="{{avatarUrl}}" class="avatar" src="{{avatarUrl}}" mode="aspectFill"/>
+    <view wx:else class="avatar-placeholder">
+      <text class="avatar-icon">👤</text>
+    </view>
+    <view class="avatar-badge">{{_uploading ? '…' : '换'}}</view>
+  </button>
+
+  <view class="input-wrap">
+    <input
+      class="input"
+      type="nickname"
+      placeholder="点击填写昵称"
+      placeholder-class="placeholder"
+      value="{{nickname}}"
+      bindinput="onInput"
+      bindblur="onBlur"
+      maxlength="12"
+    />
+  </view>
+
+  <button class="btn-confirm" bindtap="onConfirm">确认进入</button>
+  <button class="btn-skip" bindtap="onSkip">跳过，用随机昵称</button>
+
+</view>

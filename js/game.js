@@ -84,8 +84,38 @@ class Game {
   }
 
   start() {
-    // 不在启动时登录，只有玩家主动点「联机」才触发网络请求
     this._loop()
+    this._startShakeListener()
+  }
+
+  // 问题6：手机摇动触发摇骰子
+  _startShakeListener() {
+    let lastShake = 0
+    wx.onAccelerometerChange((res) => {
+      const { x, y, z } = res
+      const force = Math.sqrt(x * x + y * y + z * z)
+      if (force > 2.0) {
+        const now = Date.now()
+        if (now - lastShake < 1500) return  // 1.5秒冷却
+        lastShake = now
+        this._onShake()
+      }
+    })
+    wx.startAccelerometer({ interval: 'game' })
+  }
+
+  _onShake() {
+    if (this.state !== STATE.IDLE) return
+    // 联机模式：只有轮到自己才能摇
+    if (this.isOnline && !this._isMyTurn()) return
+    this.rollPressed = true
+    this._startRoll()
+  }
+
+  destroy() {
+    wx.stopAccelerometer()
+    this._clearAutoRollTimer()
+    if (this.network) this.network.leaveRoom().catch(() => {})
   }
 
   // ── Main Loop ──────────────────────────────────
@@ -145,6 +175,21 @@ class Game {
     ui.drawHeader('好婆叫侬来白相', subtitle)
     ui.drawExitButton()
     ui.drawPool(this.pool)
+
+    // 游戏中，房主左上角「终止游戏」按钮（避开右侧系统胶囊）
+    if (this.isOnline && this._isHost) {
+      const ctx = ui.ctx
+      const bw = 60, bh = 26, bx = 12, by = this.safeTop + 8
+      ctx.fillStyle = 'rgba(120,30,15,0.75)'
+      ctx.strokeStyle = 'rgba(255,80,60,0.35)'
+      ctx.lineWidth = 1
+      ui._roundRect(bx, by, bw, bh, 7)
+      ctx.fill(); ctx.stroke()
+      ctx.fillStyle = 'rgba(255,190,170,0.9)'
+      ctx.font = 'bold 11px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('⏹ 终止', bx + bw / 2, by + 17)
+    }
     ui.drawBowl(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
 
     if (this.physics) {
@@ -443,20 +488,52 @@ class Game {
       ctx.font = '13px sans-serif'
       ctx.fillText('已加入 ' + players.length + ' 人', cx, listY)
       players.forEach((p, i) => {
-        ctx.fillStyle = 'rgba(255,255,255,0.65)'
-        ctx.font = '15px sans-serif'
-        ctx.fillText((i + 1) + '.  ' + p.nickname, cx, listY + 24 + i * 30)
+        const rowX = cx + (i - (players.length - 1) / 2) * 72
+        // 头像
+        this._drawAvatar(ctx, p.openid, p.avatarUrl || '', rowX, listY + 52, 22)
+        // 昵称：自适应字号，最宽 64px
+        ctx.fillStyle = p.isBot ? 'rgba(255,200,80,0.7)' : 'rgba(255,255,255,0.7)'
+        const maxW = 64
+        let nick = p.nickname
+        let fontSize = 12
+        ctx.font = fontSize + 'px sans-serif'
+        while (ctx.measureText(nick).width > maxW && fontSize > 8) {
+          fontSize--
+          ctx.font = fontSize + 'px sans-serif'
+        }
+        // 还超就截断加省略号
+        if (ctx.measureText(nick).width > maxW) {
+          while (ctx.measureText(nick + '…').width > maxW && nick.length > 1) {
+            nick = nick.slice(0, -1)
+          }
+          nick = nick + '…'
+        }
+        ctx.fillText(nick, rowX, listY + 90)
       })
 
-      // 房主「开始游戏」按钮
+      // 房主按钮区
       if (this._isHost) {
+        const botY = h - 136 - sb
         const startY = h - 72 - sb
-        ctx.fillStyle = players.length >= 1 ? '#C0392B' : 'rgba(100,40,30,0.5)'
+        const canStart = players.length >= 2
+
+        // 添加机器人按钮
+        ctx.fillStyle = 'rgba(255,255,255,0.06)'
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)'
+        ctx.lineWidth = 1
+        ui._roundRect(32, botY, w - 64, 48, 12)
+        ctx.fill(); ctx.stroke()
+        ctx.fillStyle = 'rgba(255,255,255,0.5)'
+        ctx.font = '15px sans-serif'
+        ctx.fillText('🤖  添加机器人陪练', cx, botY + 30)
+
+        // 开始游戏按钮
+        ctx.fillStyle = canStart ? '#C0392B' : 'rgba(80,30,20,0.6)'
         ui._roundRect(32, startY, w - 64, 52, 14)
         ctx.fill()
-        ctx.fillStyle = '#FFFFFF'
+        ctx.fillStyle = canStart ? '#FFFFFF' : 'rgba(255,255,255,0.25)'
         ctx.font = 'bold 19px serif'
-        ctx.fillText('开 始 游 戏', cx, startY + 34)
+        ctx.fillText(canStart ? '开 始 游 戏' : '至少 2 人才能开始', cx, startY + 34)
       }
       return
     }
@@ -465,10 +542,29 @@ class Game {
     ctx.fillStyle = 'rgba(212,172,13,0.5)'
     ctx.font = '13px sans-serif'
     ctx.fillText('联机大厅', cx, st + 62)
-    if (this.network.nickname) {
-      ctx.fillStyle = 'rgba(255,255,255,0.3)'
-      ctx.font = '13px sans-serif'
-      ctx.fillText('👤  ' + this.network.nickname, cx, st + 88)
+
+    // 昵称行：头像圆 + 昵称 + 修改按钮
+    const nick = this.network.nickname || ''
+    if (nick) {
+      const avatarX = cx - 80
+      const avatarY = st + 78
+      const avatarR = 18
+      // 头像
+      this._drawAvatar(ctx, '_self', this.network.avatarUrl || '', avatarX, avatarY, avatarR)
+      // 昵称文字
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'
+      ctx.font = '14px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText(nick, cx - 20, st + 83)
+      // 修改按钮
+      ctx.fillStyle = 'rgba(255,255,255,0.08)'
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)'
+      ctx.lineWidth = 1
+      ui._roundRect(cx + 30, st + 68, 52, 24, 6)
+      ctx.fill(); ctx.stroke()
+      ctx.fillStyle = 'rgba(255,255,255,0.45)'
+      ctx.font = '11px sans-serif'
+      ctx.fillText('修改', cx + 56, st + 85)
     }
 
     let y = st + 130
@@ -583,7 +679,15 @@ class Game {
       return
     }
 
-    // 标题区点击（游戏中也可进管理员，排除退出按钮区域）
+    // 标题区点击
+    // 房主「终止游戏」按钮
+    if (this.isOnline && this._isHost && this.state !== STATE.SETUP && this.state !== STATE.LOBBY) {
+      const bw = 60, bh = 26, bx = 12, by = this.safeTop + 8
+      if (tx >= bx && tx <= bx + bw && ty >= by && ty <= by + bh) {
+        this._confirmAbortGame()
+        return
+      }
+    }
     if (ty < this.safeTop + 50 && tx < this.w - 28) {
       this._onTitleTap()
       return
@@ -745,10 +849,18 @@ class Game {
   async _enterLobby() {
     this.isOnline = true
     this.state = STATE.LOBBY
-    this._lobbyLoading = true
+    this._lobbyLoading = false
     this._lobbyError = ''
+    this._lobbyView = 'main'      // ← 每次进大厅都重置到主视图
+    this._isHost = false
+    this.activityCode = ''
+    this._waitingPlayers = []
+
     try {
-      await this.network.login(this.collectNickname)
+      await this.network.login(
+        this.collectNickname,
+        () => { this._lobbyLoading = true }
+      )
       this._lobbyLoading = false
     } catch {
       this._lobbyLoading = false
@@ -783,32 +895,48 @@ class Game {
       const cardY = st + 110
       const shareY = cardY + 124
 
-      // 分享按钮
+      // 分享/复制 按钮
       if (ty >= shareY && ty <= shareY + 50) {
-        wx.shareAppMessage({
-          title: `快来和我一起玩！房间号：${this.activityCode}`,
-          path: '/pages/game/game',
-          imageUrl: '',
+        wx.setClipboardData({
+          data: this.activityCode,
+          success: () => wx.showToast({ title: '房间号已复制', icon: 'success' })
         })
+        // 同时触发系统分享（右上角菜单里也有）
+        wx.showShareMenu({ withShareTicket: false, menus: ['shareAppMessage'] })
         return
       }
 
-      // 房主开始按钮
+      // 房主按钮区
       if (this._isHost) {
+        const botY = h - 136 - sb
         const startY = h - 72 - sb
+        // 添加机器人
+        if (ty >= botY && ty <= botY + 48) {
+          this._addBot()
+          return
+        }
+        // 开始游戏
         if (ty >= startY && ty <= startY + 52) {
           this._hostStartGame()
+          return
         }
       }
       return
     }
 
     // ── 主视图触摸 ────────────────────────────────
+    const cx = this.w / 2
+    // 修改昵称按钮
+    if (this.network.nickname && ty >= st + 76 && ty <= st + 100 && tx >= cx + 30 && tx <= cx + 82) {
+      this._changeNickname()
+      return
+    }
+
     let y = st + 130
     if (this._lobbyError) y += 36
 
     if (ty >= y && ty <= y + 60) {
-      this._createOnlineRoom()
+      this._promptStakeAndCreate()
       return
     }
     y += 80
@@ -827,6 +955,65 @@ class Game {
     }
   }
 
+  // 房主确认终止游戏
+  _confirmAbortGame() {
+    wx.showModal({
+      title: '终止游戏',
+      content: '底池将平分退还给所有玩家，确认终止？',
+      confirmText: '确认终止',
+      confirmColor: '#C0392B',
+      cancelText: '继续游戏',
+      success: async (res) => {
+        if (!res.confirm) return
+        try {
+          const result = await this.network.abortGame()
+          if (!result || !result.success) {
+            wx.showToast({ title: result?.error || '操作失败', icon: 'none' })
+          }
+          // 结果通过 _onRoomUpdate 的 phase==='aborted' 分支处理
+        } catch(e) {
+          wx.showToast({ title: '网络错误', icon: 'none' })
+        }
+      }
+    })
+  }
+
+  // 修改昵称 → 重新跳 profile 页
+  _changeNickname() {
+    if (typeof this.collectNickname === 'function') {
+      // 清掉缓存，强制重填
+      try { wx.removeStorageSync('userProfile') } catch(e) {}
+      this.collectNickname().then((result) => {
+        if (result.nickname) {
+          this.network.nickname = result.nickname
+          this.network.avatarUrl = result.avatarUrl || this.network.avatarUrl
+          // 同步到云端
+          wx.cloud.callFunction({
+            name: 'playerManager',
+            data: { action: 'login', nickname: result.nickname, avatarUrl: result.avatarUrl || '' }
+          }).catch(() => {})
+        }
+      })
+    }
+  }
+
+  // 添加机器人
+  async _addBot() {
+    const existing = (this._waitingPlayers || []).filter(p => p.isBot)
+    if (existing.length >= 3) {
+      wx.showToast({ title: '最多添加3个机器人', icon: 'none' })
+      return
+    }
+    try {
+      const res = await this.network.addBot()
+      if (!res || !res.success) {
+        wx.showToast({ title: res?.error || '添加失败', icon: 'none' })
+      }
+    } catch(e) {
+      wx.showToast({ title: '网络错误', icon: 'none' })
+    }
+  }
+
   // 房主点「开始游戏」──────────────────────────────
   async _hostStartGame() {
     try {
@@ -841,12 +1028,45 @@ class Game {
     }
   }
 
+  _promptStakeAndCreate() {
+    const defaultStake = this.setupStake || 32
+    wx.showModal({
+      title: '设置底池',
+      content: `每人底池默认 ${defaultStake} 点，首次联机赠送 100 点。`,
+      confirmText: '去设置',
+      cancelText: '用默认',
+      success: (res) => {
+        if (!res.confirm) {
+          // 直接用默认值创建
+          this._createOnlineRoom()
+          return
+        }
+        // 弹输入框
+        wx.showModal({
+          title: '输入底池金额',
+          editable: true,
+          placeholderText: String(defaultStake),
+          success: (r) => {
+            if (!r.confirm) return
+            const raw = parseInt((r.content || '').trim())
+            if (isNaN(raw) || raw <= 0) {
+              wx.showToast({ title: '请输入正整数', icon: 'none' })
+              return
+            }
+            this.setupStake = raw
+            this._createOnlineRoom()
+          }
+        })
+      }
+    })
+  }
+
   async _createOnlineRoom() {
     this._lobbyLoading = true
     this._lobbyError = ''
     try {
       const res = await this.network.createRoom({
-        stake: this.setupStake,
+        stake: this.setupStake || 32,
         maxPlayers: 6,
       })
       if (res.success) {
@@ -870,12 +1090,20 @@ class Game {
     try {
       const res = await this.network.joinRoom(code)
       if (res.success) {
-        this.activityCode = res.roomCode || code
-        this._isHost = false
-        this._bindRoomCallbacks()
-        // 加入后也进等待室，等房主开始
-        this._lobbyView = 'waiting'
-        this._startOnlineGame(res.roomData)
+        const rd = res.roomData
+        if (rd && rd.phase === 'playing') {
+          // 游戏已在进行中，直接进游戏（旁观/补位场景暂不支持）
+          this._lobbyError = '游戏已开始，无法加入'
+          this.network.leaveRoom().catch(() => {})
+        } else {
+          this.activityCode = res.roomCode || code
+          this._isHost = (rd && rd.hostOpenid === this.network.openid)
+          this._bindRoomCallbacks()
+          this._lobbyView = 'waiting'
+          if (rd) this._waitingPlayers = (rd.players || []).map(p => ({
+            openid: p.openid, nickname: p.nickname, avatarUrl: p.avatarUrl || '', isBot: !!p.isBot
+          }))
+        }
       } else {
         this._lobbyError = res.error || '加入失败'
       }
@@ -901,7 +1129,7 @@ class Game {
 
     // 等待室：同步已加入玩家列表
     if (this._lobbyView === 'waiting' && roomData.players) {
-      this._waitingPlayers = roomData.players.map(p => ({ nickname: p.nickname }))
+      this._waitingPlayers = roomData.players.map(p => ({ openid: p.openid, nickname: p.nickname, avatarUrl: p.avatarUrl || '', isBot: !!p.isBot }))
     }
 
     // 房主点开始后，非房主自动进入游戏
@@ -919,6 +1147,16 @@ class Game {
     }))
     this.currentPlayer = roomData.currentPlayerIndex
 
+    // 轮到机器人时，房主客户端自动代为摇骰子（1秒延迟模拟思考）
+    const botPhase = roomData.phase === 'waiting' || roomData.phase === 'settled'
+    if (this._isHost && botPhase && roomData.players) {
+      const cur = roomData.players[roomData.currentPlayerIndex]
+      if (cur && cur.isBot) {
+        clearTimeout(this._botTimer)
+        this._botTimer = setTimeout(() => this._triggerBotRoll(), 1200)
+      }
+    }
+
     // 其他玩家摇了骰子 → 在本地播放骰子动画
     if (roomData.phase === 'rolling' && !this._isMyTurn()) {
       this._playRemoteDice(roomData.diceValues)
@@ -931,10 +1169,88 @@ class Game {
       this.state = STATE.RESULT
     }
 
+    // 中途终止
+    if (roomData.phase === 'aborted') {
+      this._showAbortResult(roomData)
+      return
+    }
+
     // 游戏结束
     if (roomData.status === 'finished') {
       this.state = STATE.WINNER
     }
+  }
+
+  async _triggerBotRoll() {
+    if (!this.roomData) return
+    const cur = this.roomData.players[this.roomData.currentPlayerIndex]
+    if (!cur || !cur.isBot) return
+    try {
+      // 先在本地播摇骰动画（随机值，稍后用云端结果覆盖）
+      this.state = STATE.ROLLING
+      this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
+      this.physics.spawnAll([1,1,1,1,1])
+
+      const res = await wx.cloud.callFunction({
+        name: 'roomManager',
+        data: {
+          action: 'botRoll',
+          roomId: this.network.currentRoomId,
+          botOpenid: cur.openid,
+          hostOpenid: this.network.openid,
+        }
+      })
+      const result = res.result
+      if (result && result.success) {
+        // 动画结束后用真实骰子值显示结果
+        setTimeout(() => {
+          if (result.diceValues) {
+            this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
+            this.physics.spawnAll(result.diceValues)
+          }
+          // _onRoomUpdate 会把 state 设成 RESULT，这里等云端推送自然触发
+          // 2.5秒后自动点下一位
+          setTimeout(() => this._triggerBotNext(), 2500)
+        }, 800)
+      } else {
+        setTimeout(() => this._triggerBotNext(), 1500)
+      }
+    } catch(e) {
+      console.error('botRoll fail', e)
+      setTimeout(() => this._triggerBotNext(), 2000)
+    }
+  }
+
+  async _triggerBotNext() {
+    // 只有当前仍是 settled 状态才推进（防止重复触发）
+    if (!this.roomData || this.roomData.phase !== 'settled') return
+    const cur = this.roomData.players[this.roomData.currentPlayerIndex]
+    if (!cur || !cur.isBot) return
+    try {
+      await this.network.nextTurn()
+    } catch(e) {
+      console.error('botNext fail', e)
+    }
+  }
+
+  _showAbortResult(roomData) {
+    const share = roomData.pool > 0
+      ? Math.floor(roomData.pool / (roomData.players || []).filter(p => !p.isBot).length)
+      : 0
+    const myPlayer = (roomData.players || []).find(p => p.openid === this.network.openid)
+    const myChips = myPlayer ? myPlayer.chips : 0
+    wx.showModal({
+      title: '游戏已终止',
+      content: `底池已平分退还。
+你本局最终余额：${myChips + share} 点`,
+      showCancel: false,
+      confirmText: '返回主页',
+      success: () => {
+        this.network.leaveRoom().catch(() => {})
+        this.isOnline = false
+        this.state = STATE.SETUP
+      }
+    })
   }
 
   _playRemoteDice(values) {
@@ -1183,5 +1499,59 @@ class Game {
     const p = this.players[this.currentPlayer]
     return p ? (p.nickname || p.name || '玩家') : ''
   }
+
+
+  // 头像图片缓存加载
+  _loadAvatar(player) {
+    if (!this._avatarCache) this._avatarCache = {}
+    const key = player.openid
+    if (key in this._avatarCache) return
+    if (!player.avatarUrl) { this._avatarCache[key] = null; return }
+    this._avatarCache[key] = 'loading'
+    // 微信临时路径需先 getImageInfo 转成可用路径再塞给 canvas image
+    wx.getImageInfo({
+      src: player.avatarUrl,
+      success: (info) => {
+        const img = this.canvas.createImage()
+        img.onload = () => { this._avatarCache[key] = img }
+        img.onerror = () => { this._avatarCache[key] = null }
+        img.src = info.path
+      },
+      fail: () => { this._avatarCache[key] = null }
+    })
+  }
+
+  // 安全绘制头像圆（处理 loading/null/image 三种状态）
+  _drawAvatar(ctx, key, url, x, y, r) {
+    if (!this._avatarCache) this._avatarCache = {}
+    const img = this._avatarCache[key]
+    // 背景圆
+    ctx.fillStyle = 'rgba(212,172,13,0.2)'
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+    if (img && img !== 'loading' && img !== null) {
+      try {
+        ctx.save()
+        ctx.beginPath()
+        ctx.arc(x, y, r, 0, Math.PI * 2)
+        ctx.clip()
+        ctx.drawImage(img, x - r, y - r, r * 2, r * 2)
+        ctx.restore()
+      } catch(e) {
+        this._avatarCache[key] = null
+      }
+    } else if (!img) {
+      this._loadAvatar({ openid: key, avatarUrl: url })
+    }
+  }
+
+  // 从分享链接进入，自动触发联机加入流程
+  autoJoinRoom(roomCode) {
+    this._enterLobby().then(() => {
+      this._joinOnlineRoom(roomCode)
+    })
+  }
 }
+
 module.exports = Game

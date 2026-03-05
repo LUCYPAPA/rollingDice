@@ -23,6 +23,10 @@ exports.main = async (event, context) => {
       case 'leaveRoom':   return await leaveRoom(event, OPENID)
       case 'getRoomInfo': return await getRoomInfo(event)
       case 'initDB':      return await initDB()
+      case 'startGame':   return await startGame(event, OPENID)
+      case 'addBot':      return await addBot(event, OPENID)
+      case 'botRoll':     return await botRoll(event, OPENID)
+      case 'abortGame':    return await abortGame(event, OPENID)
       default: return { success: false, error: 'unknown action' }
     }
   } catch (e) {
@@ -97,7 +101,8 @@ async function joinRoom(event, openid) {
   if (!roomRes) return { success: false, error: ('找不到今日房间号 ' + roomCode) }
 
   const room = roomRes.data
-  if (room.status === 'finished') return { success: false, error: '该局游戏已结束' }
+  if (room.status === 'finished' || room.phase === 'finished') return { success: false, error: '该局游戏已结束' }
+  if (room.status === 'playing') return { success: false, error: '游戏已开始，无法加入' }
   if (room.players.length >= room.maxPlayers) return { success: false, error: '房间已满' }
 
   const alreadyIn = room.players.find(p => p.openid === openid)
@@ -131,21 +136,17 @@ async function joinRoom(event, openid) {
 
 async function rollDice(event, openid) {
   const { roomId } = event
-
   const roomRes = await rooms.doc(roomId).get()
   const room = roomRes.data
-
   const currentPlayer = room.players[room.currentPlayerIndex]
-  if (currentPlayer.openid !== openid) {
-    return { success: false, error: '还没到你的回合' }
-  }
-  if (room.phase !== 'waiting' && room.phase !== 'settled') {
-    return { success: false, error: '请等待当前操作完成' }
-  }
+  if (currentPlayer.openid !== openid) return { success: false, error: '还没到你的回合' }
+  if (room.phase !== 'waiting' && room.phase !== 'settled') return { success: false, error: '请等待当前操作完成' }
+  const diceValues = Array.from({ length: 5 }, () => Math.ceil(Math.random() * 6))
+  return rollDiceForPlayer(room, roomId, openid, diceValues)
+}
 
-  // 骰子由云端生成，客户端无法篡改
-  const diceValues = Array.from({ length: 6 }, () => Math.ceil(Math.random() * 6))
-
+async function rollDiceForPlayer(room, roomId, openid, diceValues) {
+  const currentPlayer = room.players[room.currentPlayerIndex]
   const result = _evaluateDice(diceValues)
   const pool = room.pool
   let payout = 0
@@ -174,6 +175,14 @@ async function rollDice(event, openid) {
       updatedAt: db.serverDate(),
     }
   })
+
+  // 实时更新赢家余额（机器人没有真实余额，跳过）
+  const winnerPlayer = newPlayers[room.currentPlayerIndex]
+  if (payout > 0 && winnerPlayer && !winnerPlayer.isBot) {
+    await players.doc(winnerPlayer.openid).update({
+      data: { balance: winnerPlayer.chips }
+    }).catch(() => {})
+  }
 
   await logs.doc(roomId).update({
     data: {
@@ -257,9 +266,11 @@ async function _finishGame(roomId, room, winnerOpenid) {
     const delta = p.chips - p.initialChips
     finalBalances[p.openid] = p.chips
 
+    if (p.isBot) continue  // 机器人不写余额
+
     await players.doc(p.openid).update({
       data: {
-        balance: _.inc(delta),
+        balance: p.chips,
         gamesPlayed: _.inc(1),
       }
     })
@@ -322,6 +333,198 @@ function _evaluateDice(dice) {
   }
   return { type: 'none', label: '轮空', call: '', emoji: '', amount: 0 }
 }
+// ── 房主开始游戏 ──────────────────────────────────────────────────
+async function abortGame(event, openid) {
+  const { roomId } = event
+
+  const roomRes = await rooms.doc(roomId).get().catch(() => null)
+  if (!roomRes) return { success: false, error: '房间不存在' }
+  const room = roomRes.data
+
+  if (room.hostOpenid !== openid) return { success: false, error: '只有房主可以结束游戏' }
+  if (room.status === 'finished') return { success: false, error: '游戏已结束' }
+
+  const now = db.serverDate()
+  const activePlayers = room.players.filter(p => p.active && !p.isBot)
+  const pool = room.pool || 0
+
+  // 底池平分（只退给真人玩家，机器人不参与）
+  const share = activePlayers.length > 0 ? Math.floor(pool / activePlayers.length) : 0
+  const remainder = pool - share * activePlayers.length  // 余数给房主
+
+  const refundMap = {}
+  for (const p of room.players) {
+    // chips 当前值就是已结算状态，再加上底池分成
+    let refund = 0
+    if (!p.isBot) {
+      const isHost = p.openid === room.hostOpenid
+      refund = share + (isHost ? remainder : 0)
+    }
+    refundMap[p.openid] = refund
+
+    // 用绝对值 set（因为 rollDiceForPlayer 已实时 set 过 chips，不能再 inc）
+    if (!p.isBot) {
+      const finalBalance = p.chips + refund  // chips 是当前已结算值，加上底池退还
+      await players.doc(p.openid).update({
+        data: { balance: finalBalance }
+      }).catch(() => {})
+
+      await ledger.add({
+        data: {
+          openid: p.openid,
+          nickname: p.nickname,
+          refund,
+          chipsAtAbort: p.chips,
+          finalBalance,
+          roomId,
+          roomCode: room.roomCode,
+          reason: '房主中途结束，底池平分退还',
+          isAbort: true,
+          createdAt: now,
+        }
+      }).catch(() => {})
+    }
+  }
+
+  // 房间标记废弃
+  await rooms.doc(roomId).update({
+    data: {
+      status: 'finished',
+      phase: 'aborted',
+      abortedBy: openid,
+      abortedAt: now,
+      updatedAt: now,
+    }
+  })
+
+  await logs.doc(roomId).update({
+    data: { finishedAt: now, aborted: true }
+  }).catch(() => {})
+
+  return { success: true, refundMap, share }
+}
+
+async function botRoll(event, openid) {
+  const { roomId, botOpenid, hostOpenid } = event
+  // 验证调用者是房主
+  if (openid !== hostOpenid) return { success: false, error: '非法操作' }
+
+  const roomRes = await rooms.doc(roomId).get().catch(() => null)
+  if (!roomRes) return { success: false, error: '房间不存在' }
+  const room = roomRes.data
+
+  // 验证当前回合确实是该机器人
+  const cur = room.players[room.currentPlayerIndex]
+  if (!cur || cur.openid !== botOpenid || !cur.isBot) {
+    return { success: false, error: '当前不是该机器人的回合' }
+  }
+
+  // 用云端随机生成骰子（防作弊逻辑与真人一致）
+  const diceValues = Array.from({ length: 5 }, () => Math.floor(Math.random() * 6) + 1)
+
+  // 复用 rollDice 的结算逻辑，传入机器人 openid
+  return await rollDiceForPlayer(room, roomId, botOpenid, diceValues)
+}
+
+async function addBot(event, openid) {
+  const { roomId, hostOpenid } = event
+
+  // 只有房主可以添加机器人
+  const roomRes = await rooms.doc(roomId).get().catch(() => null)
+  if (!roomRes) return { success: false, error: '房间不存在' }
+  const room = roomRes.data
+  if (room.hostOpenid !== openid) return { success: false, error: '只有房主可以添加机器人' }
+  if (room.phase === 'playing') return { success: false, error: '游戏已开始' }
+
+  // 计算机器人编号：001 002 003
+  const existingBots = room.players.filter(p => p.isBot)
+  if (existingBots.length >= 3) return { success: false, error: '最多添加3个机器人' }
+  const botNum = String(existingBots.length + 1).padStart(3, '0')
+  const botOpenid = openid + '_' + botNum
+  const botNickname = '机器人' + botNum
+
+  // 检查是否已存在该机器人
+  const alreadyIn = room.players.find(p => p.openid === botOpenid)
+  if (alreadyIn) return { success: false, error: '机器人已在房间内' }
+
+  // 创建或更新机器人账号（用 set 确保 _id 固定）
+  const now = db.serverDate()
+  await players.doc(botOpenid).set({
+    data: {
+      openid: botOpenid,
+      nickname: botNickname,
+      avatarUrl: '',
+      balance: 100,
+      isBot: true,
+      gamesPlayed: 0,
+      createdAt: now,
+      lastSeen: now,
+    }
+  })
+
+  // 加入房间玩家列表
+  await rooms.doc(roomId).update({
+    data: {
+      players: _.push({
+        openid: botOpenid,
+        nickname: botNickname,
+        avatarUrl: '',
+        chips: 100,
+        initialChips: 100,
+        isBot: true,
+        active: true,
+        isReady: true,
+      }),
+      updatedAt: now,
+    }
+  })
+
+  const updated = await rooms.doc(roomId).get()
+  return { success: true, roomData: updated.data }
+}
+
+async function startGame(event, openid) {
+  const { roomId } = event
+  const roomRes = await rooms.doc(roomId).get()
+  if (!roomRes.data) return { success: false, error: '房间不存在' }
+  const room = roomRes.data
+  if (room.hostOpenid !== openid) return { success: false, error: '只有房主可以开始' }
+  if (room.players.length < 2) return { success: false, error: '至少需要2名玩家才能开始' }
+  if (room.phase === 'playing') return { success: false, error: '游戏已经开始' }
+
+  const stake = room.stake || 32
+  const playerCount = room.players.length
+  const totalPool = stake * playerCount
+
+  // 从每位玩家余额扣底注
+  const deductPromises = room.players.map(p =>
+    players.doc(p.openid).update({
+      data: { balance: _.inc(-stake) }
+    }).catch(() => {})
+  )
+  await Promise.all(deductPromises)
+
+  // 更新房间：底池注入，状态改为 playing，玩家 chips 同步扣减
+  const updatedPlayers = room.players.map(p => ({
+    ...p,
+    chips: p.chips - stake,
+    initialChips: p.chips - stake,
+  }))
+
+  await rooms.doc(roomId).update({
+    data: {
+      status: 'playing',   // status 標記遊戲已開始（防止再加入）
+      phase: 'waiting',    // phase 重置為 waiting，讓第一個玩家可以搖
+      pool: totalPool,
+      players: updatedPlayers,
+      startedAt: db.serverDate(),
+    }
+  })
+  const updated = await rooms.doc(roomId).get()
+  return { success: true, roomData: updated.data }
+}
+
+
 // ── 初始化数据库（第一次部署后在控制台调用一次）─────────────────
 async function initDB() {
   const collections = [
