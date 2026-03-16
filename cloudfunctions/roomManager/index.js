@@ -164,9 +164,18 @@ async function rollDiceForPlayer(room, roomId, openid, diceValues) {
     return p
   })
 
+  // 第一步：先广播 rolling 状态和骰子点数，客户端据此播放动画
   await rooms.doc(roomId).update({
     data: {
       diceValues,
+      phase: 'rolling',
+      updatedAt: db.serverDate(),
+    }
+  })
+
+  // 第二步：立即写入 settled + 结算结果（云端为权威状态）
+  await rooms.doc(roomId).update({
+    data: {
       phase: 'settled',
       lastResult: result,
       lastPayout: payout,

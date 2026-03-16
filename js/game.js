@@ -144,7 +144,10 @@ class Game {
       const settled = this.physics.tick()
       if (settled) {
         this.diceValues = this.physics.dice.map(d => d.value)
-        this._finishRoll()
+        // 单机：本地结算并加钱；联机：只负责动画停住，结算完全由云端回推
+        if (!this.isOnline) {
+          this._finishRoll()
+        }
       }
     }
     this.ui.updateParticles()
@@ -180,7 +183,8 @@ class Game {
       ? `房间号 ${this.network.currentRoomCode || this.activityCode}  ·  第 ${this.round} 轮`
       : `第 ${this.round} 轮`
     ui.drawHeader('好婆叫侬来白相', subtitle)
-    ui.drawExitButton()
+    // 联机对局中不显示右上角 ✕ 退出按钮，避免误触；仅单机显示
+    if (!this.isOnline) ui.drawExitButton()
     ui.drawPool(this.pool)
 
     // 游戏中，房主左上角「终止游戏」按钮（避开右侧系统胶囊）
@@ -667,7 +671,8 @@ class Game {
     }
 
     // 退出按钮优先（在标题区判断之前，避免被拦截）
-    if (this.state !== STATE.SETUP && this.ui.hitTestExitButton(tx, ty)) {
+    // 联机对局中不提供 ✕ 退出入口，只在单机里可用
+    if (!this.isOnline && this.state !== STATE.SETUP && this.ui.hitTestExitButton(tx, ty)) {
       wx.showModal({
         title: '退出',
         content: '确定退出当前局？',
@@ -1159,8 +1164,9 @@ class Game {
       this.lastResult = null
       this.lastPayout = 0
       this.rollPressed = false
-      // diceValues 由服务端维护（nextTurn 会重置为默认），这里不主动改
+      // 新一位开始前，清掉上一手物理骰子，让画面回到静态初始布局（对齐单机的 _nextTurn 行为）
       this.physics = null
+      // diceValues 由服务端维护（nextTurn 会重置为默认心形布局）
       this.state = STATE.IDLE
     }
 
@@ -1172,9 +1178,6 @@ class Game {
         this.diceValues = roomData.diceValues
         if (roomData.phase === 'rolling') {
           this._playRemoteDice(roomData.diceValues)
-        } else if (roomData.phase === 'settled') {
-          // settled：不要重新生成物理骰子（会“重置”位置/观感怪），直接静态展示点数即可
-          this.physics = null
         }
       }
     }
@@ -1195,8 +1198,8 @@ class Game {
       this._playRemoteDice(roomData.diceValues)
     }
 
-    // 结算
-    if (roomData.lastResult && roomData.phase === 'settled') {
+    // 结算（bot 动画期间跳过，由 _triggerBotRoll 控制）
+    if (roomData.lastResult && roomData.phase === 'settled' && !this._botAnimating) {
       clearTimeout(this._serverRollTimeout)
       this._pendingServerRoll = false
       this.lastResult = roomData.lastResult
@@ -1223,14 +1226,14 @@ class Game {
 
   async _triggerBotRoll() {
     if (!this.roomData) return
+    if (this._botAnimating) return  // 防重入
     const cur = this.roomData.players[this.roomData.currentPlayerIndex]
     if (!cur || !cur.isBot) return
-    try {
-      // 先在本地播摇骰动画（随机值，稍后用云端结果覆盖）
-      this.state = STATE.ROLLING
-      this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
-      this.physics.spawnAll(Array.from({ length: 6 }, () => Math.ceil(Math.random() * 6)))
 
+    this._botAnimating = true
+
+    try {
+      // 先调云函数拿到真实骰子值
       const res = await wx.cloud.callFunction({
         name: 'roomManager',
         data: {
@@ -1241,31 +1244,44 @@ class Game {
         }
       })
       const result = res.result
-      if (result && result.success) {
-        // 动画结束后用真实骰子值显示结果
+
+      if (result && result.success && result.diceValues) {
+        // 用真实骰子值播动画（此时 _onRoomUpdate 的 state 干扰被屏蔽）
+        this.state = STATE.ROLLING
+        this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
+        this.physics.spawnAll(result.diceValues)
+
+        // 等动画播完（1.8s）再显示结果
         setTimeout(() => {
-          if (result.diceValues) {
-            this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
-            this.physics.spawnAll(result.diceValues)
+          // 同步 players chips 和 pool（用 roomData 最新值）
+          if (this.roomData && this.roomData.players) {
+            this.players = this.roomData.players.map(p => ({
+              ...p, name: p.nickname, chips: p.chips, active: p.active,
+            }))
           }
-          // _onRoomUpdate 会把 state 设成 RESULT，这里等云端推送自然触发
-          // 2.5秒后自动点下一位
-          setTimeout(() => this._triggerBotNext(), 2500)
-        }, 800)
+          this.pool = (this.roomData && this.roomData.pool) || this.pool
+          this.lastResult = result.result
+          this.lastPayout = result.payout || 0
+          this.state = STATE.RESULT
+
+          // 停留 2s 让玩家看到结果，然后自动下一位
+          setTimeout(() => {
+            this._botAnimating = false
+            this._triggerBotNext()
+          }, 2000)
+        }, 1800)
       } else {
-        setTimeout(() => this._triggerBotNext(), 1500)
+        this._botAnimating = false
+        setTimeout(() => this._triggerBotNext(), 800)
       }
     } catch(e) {
       console.error('botRoll fail', e)
+      this._botAnimating = false
       setTimeout(() => this._triggerBotNext(), 2000)
     }
   }
 
   async _triggerBotNext() {
-    // 只有当前仍是 settled 状态才推进（防止重复触发）
-    if (!this.roomData || this.roomData.phase !== 'settled') return
-    const cur = this.roomData.players[this.roomData.currentPlayerIndex]
-    if (!cur || !cur.isBot) return
     try {
       await this.network.nextTurn()
     } catch(e) {
@@ -1415,13 +1431,6 @@ class Game {
   _finishRoll() {
     const finalValues = this.physics.dice.map(d => d.value)
     this.diceValues = finalValues
-
-    // 联机模式：结算与加钱以云端为准（否则下一位时会被云端状态覆盖，表现为“重置”）
-    if (this.isOnline) {
-      // 清掉 physics，避免 ROLLING 状态下每帧重复触发 _finishRoll()
-      this.physics = null
-      return
-    }
 
     const result = evaluateDice(finalValues)
     this.lastResult = result
