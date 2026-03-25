@@ -58,6 +58,7 @@
   "simulatorPluginLibVersion": {},
   "packOptions": {
     "ignore": [
+      { "type": "glob", "value": ".claude/**" },
       { "type": "glob", "value": "miniprogram_npm/**" },
       { "type": "glob", "value": "images/**" },
       { "type": "glob", "value": "**/.DS_Store" },
