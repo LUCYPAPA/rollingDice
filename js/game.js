@@ -313,7 +313,8 @@ class Game {
       ui.drawResult(this.lastResult, this.lastPayout)
     }
     // 联机版：「下一位」和「开始下一轮」只有当前回合玩家才能看到和点击
-    const showNextBtn = !this.isOnline || this._isMyTurn()
+    // 联机底池归零时不显示"下一位"，等结算弹窗引导流程
+    const showNextBtn = (!this.isOnline || this._isMyTurn()) && !(this.isOnline && this.pool === 0)
     if (this.state === STATE.RESULT && showNextBtn) {
       ui.drawNextButton('下一位 →')
     } else if (this.state === STATE.NEXT_ROUND && showNextBtn) {
@@ -2367,6 +2368,8 @@ class Game {
   }
 
   _nextTurn() {
+    // 联机底池归零时禁止调用，防止覆盖 round_end phase
+    if (this.isOnline && this.pool === 0) return
     if (this.isOnline) {
       this.state = STATE.WAITING
       this.network.nextTurn().then(res => {
