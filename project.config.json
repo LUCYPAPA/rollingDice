@@ -57,7 +57,15 @@
   },
   "simulatorPluginLibVersion": {},
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      { "type": "glob", "value": "miniprogram_npm/**" },
+      { "type": "glob", "value": "images/**" },
+      { "type": "glob", "value": "**/.DS_Store" },
+      { "type": "glob", "value": "PRD.md" },
+      { "type": "glob", "value": "README.md" },
+      { "type": "glob", "value": "package.json" },
+      { "type": "glob", "value": "package-lock.json" }
+    ],
     "include": []
   },
   "isGameTourist": false,

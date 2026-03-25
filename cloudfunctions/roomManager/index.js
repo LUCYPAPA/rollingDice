@@ -825,12 +825,14 @@ async function getGameDetail(event, openid) {
 // botRoll
 // ─────────────────────────────────────────────────────────────────
 async function botRoll(event, openid) {
-  const { roomId, botOpenid, hostOpenid } = event
-  if (openid !== hostOpenid) return { success: false, error: '非法操作' }
+  const { roomId, botOpenid } = event
 
   const roomRes = await rooms.doc(roomId).get().catch(() => null)
   if (!roomRes) return { success: false, error: '房间不存在' }
   const room = roomRes.data
+
+  // 从数据库取 hostOpenid，防止客户端伪造
+  if (openid !== room.hostOpenid) return { success: false, error: '非法操作' }
 
   const cur = room.players[room.currentPlayerIndex]
   if (!cur || cur.openid !== botOpenid || !cur.isBot) {

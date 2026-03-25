@@ -122,6 +122,9 @@ class Game {
   start() {
     this._loop()
     this._startShakeListener()
+    // 打开小程序时显示欢迎卡，3秒后自动消失
+    this._showWelcome = true
+    this._welcomeTimer = setTimeout(() => { this._showWelcome = false }, 3000)
   }
 
   _startShakeListener() {
@@ -253,6 +256,7 @@ class Game {
       this._drawSetup()
       this.adminPanel.draw()
       // this._drawAssistantBtn()  // 暂时隐藏：AI功能待企业主体审核
+      if (this._showWelcome) this._drawWelcomeCard()
       return
     }
 
@@ -699,9 +703,9 @@ class Game {
     const w   = this.w
     const cx  = w / 2
     const cardW = w - 64
-    const cardH = 130
+    const cardH = 168
     const cardX = 32
-    const cardY = this.h * 0.35
+    const cardY = this.h * 0.3
 
     // 遮罩
     ctx.fillStyle = 'rgba(0,0,0,0.55)'
@@ -717,19 +721,26 @@ class Game {
     ctx.textAlign = 'center'
     ctx.fillStyle = '#D4AC0D'
     ctx.font = 'bold 22px serif'
-    ctx.fillText('🎁  欢迎加入！', cx, cardY + 36)
+    ctx.fillText('好婆叫侬来白相', cx, cardY + 38)
 
-    ctx.fillStyle = 'rgba(255,255,255,0.7)'
-    ctx.font = '15px sans-serif'
-    ctx.fillText('赠送 100 点起始余额', cx, cardY + 64)
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'
+    ctx.font = '13px sans-serif'
+    ctx.fillText('收录民间互动游戏，搬到线上，四世共乐。', cx, cardY + 66)
 
-    ctx.fillStyle = '#D4AC0D'
-    ctx.font = 'bold 20px serif'
-    ctx.fillText(`当前余额：${this._myBalance} 点`, cx, cardY + 92)
+    ctx.strokeStyle = 'rgba(212,172,13,0.2)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(cardX + 20, cardY + 84)
+    ctx.lineTo(cardX + cardW - 20, cardY + 84)
+    ctx.stroke()
 
-    ctx.fillStyle = 'rgba(255,255,255,0.3)'
+    ctx.fillStyle = 'rgba(255,255,255,0.35)'
     ctx.font = '12px sans-serif'
-    ctx.fillText('点击任意处关闭', cx, cardY + 116)
+    ctx.fillText('CROSS-RANGE · 家庭传承系列', cx, cardY + 102)
+
+    ctx.fillStyle = 'rgba(255,255,255,0.2)'
+    ctx.font = '11px sans-serif'
+    ctx.fillText('点击任意处继续', cx, cardY + 150)
   }
 
   // ── 新增：局后账单弹窗 ───────────────────────────────────────
@@ -746,7 +757,9 @@ class Game {
     ctx.fillStyle = 'rgba(0,0,0,0.75)'
     ctx.fillRect(0, 0, w, h)
 
-    const cardH = Math.min(480, h - 100)
+    const evCount = Math.min((d.events || []).length, 8)
+    const playerCount = Math.min((d.players || []).length, 6)
+    const cardH = Math.min(h - 60, 230 + playerCount * 38 + (evCount > 0 ? 28 + evCount * 22 : 0) + 100)
     const cardY = (h - cardH) / 2
     ctx.fillStyle   = 'rgba(26,10,6,0.98)'
     ctx.strokeStyle = 'rgba(212,172,13,0.5)'
@@ -804,19 +817,47 @@ class Game {
 
     const playerList = (d.players || []).slice(0, 6)
     playerList.forEach((p, i) => {
-      const ry = cardY + 170 + i * 42
-      // 昵称
+      const ry = cardY + 170 + i * 38
       ctx.fillStyle = '#FFFFFF'
       ctx.font = '14px sans-serif'
       ctx.textAlign = 'left'
       ctx.fillText(p.nickname || '玩家', 48, ry + 16)
-      // 赛后余额
       const pEarned = (p.balanceAfter || 0) - (p.balanceBefore || 0)
       ctx.fillStyle = pEarned > 0 ? '#2ECC71' : pEarned < 0 ? '#E74C3C' : 'rgba(255,255,255,0.4)'
       ctx.font = 'bold 14px sans-serif'
       ctx.textAlign = 'right'
       ctx.fillText(`${p.balanceAfter ?? '--'} 点`, w - 48, ry + 16)
     })
+
+    // 每把记录
+    const evList = (d.events || []).slice(-8)
+    if (evList.length > 0) {
+      const evTop = cardY + 170 + playerList.length * 38 + 10
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(40, evTop)
+      ctx.lineTo(w - 40, evTop)
+      ctx.stroke()
+      ctx.fillStyle = 'rgba(255,255,255,0.3)'
+      ctx.font = '12px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('每把记录（最近）', cx, evTop + 16)
+      evList.forEach((ev, i) => {
+        const ey = evTop + 28 + i * 22
+        const dice = (ev.diceValues || []).join(' ')
+        const payout = ev.payout > 0 ? `+${ev.payout}` : String(ev.payout || 0)
+        const nick = (ev.playerNickname || '?').slice(0, 4)
+        ctx.fillStyle = 'rgba(255,255,255,0.5)'
+        ctx.font = '11px sans-serif'
+        ctx.textAlign = 'left'
+        ctx.fillText(`${nick}  🎲${dice}`, 40, ey)
+        ctx.fillStyle = ev.payout > 0 ? '#2ECC71' : 'rgba(255,255,255,0.35)'
+        ctx.font = 'bold 11px sans-serif'
+        ctx.textAlign = 'right'
+        ctx.fillText(payout, w - 40, ey)
+      })
+    }
 
     // 操作按钮
     const btnY = cardY + cardH - 96
@@ -1294,14 +1335,14 @@ class Game {
     }
 
     if (this.state === STATE.SETUP) {
+      // 欢迎卡点击关闭
+      if (this._showWelcome) { this._showWelcome = false; return }
       if (ty < this.safeTop + 70) { this._onTitleTap(); return }
       this._handleSetupTouch(tx, ty)
       return
     }
 
     if (this.state === STATE.LOBBY) {
-      // 欢迎卡点击关闭
-      if (this._showWelcome) { this._showWelcome = false; return }
       this._handleLobbyTouch(tx, ty)
       return
     }
@@ -1624,12 +1665,6 @@ class Game {
       if (result) {
         this._myBalance   = result.balance || 0
         this._isNewPlayer = !!result.isNew
-        if (this._isNewPlayer) {
-          // 显示欢迎卡，5秒后自动消失
-          this._showWelcome = true
-          clearTimeout(this._welcomeTimer)
-          this._welcomeTimer = setTimeout(() => { this._showWelcome = false }, 5000)
-        }
       }
     } catch (e) {
       this._lobbyLoading = false
@@ -1977,7 +2012,8 @@ class Game {
             { nickname: this.network.nickname, balanceBefore: s.myBalance.before, balanceAfter: s.myBalance.after },
             // 其他玩家
             ...(s.otherPlayers || []).map(p => ({ nickname: p.nickname, balanceAfter: p.balanceAfter })),
-          ]
+          ],
+          events: s.events || [],
         }
         this._showSettleCard = true
         // 同步更新大厅余额显示
@@ -2047,6 +2083,8 @@ class Game {
     const round    = roomData.round || 1
     const mode     = roomData.mode || 'classic'
     const isFinisher = roomData.roundEndBy === this.network.openid
+    const roundEndByPlayer = (roomData.players || []).find(p => p.openid === roomData.roundEndBy)
+    const roundEndByName = roundEndByPlayer ? roundEndByPlayer.nickname : '收尾玩家'
 
     // 构建战绩文本
     const lines = players.map(p => {
@@ -2080,7 +2118,7 @@ class Game {
                   title: names ? `${names} 余额不足，房间终止` : '余额不足，房间终止',
                   icon: 'none', duration: 3000
                 })
-                setTimeout(() => { this._restartGame() }, 3200)
+                // 让 status:finished 的 watch 触发结算流程，此处不手动 restartGame
               }
             } catch (e) {
               wx.showToast({ title: '操作失败，请重试', icon: 'none' })
@@ -2097,7 +2135,7 @@ class Game {
       // 非收尾玩家：只显示结果，等待
       wx.showModal({
         title: `🎲 第 ${round} 轮结束`,
-        content: content + '\n\n等待收尾玩家开始新一轮...',
+        content: content + `\n\n等待 ${roundEndByName} 启动新一轮...`,
         showCancel: false,
         confirmText: '知道了',
       })
@@ -2133,7 +2171,7 @@ class Game {
     try {
       if (!this._shakeAudio) {
         this._shakeAudio = wx.createInnerAudioContext()
-        this._shakeAudio.src = 'audio/shake.mp3'
+        this._shakeAudio.src = 'audio/shake.m4a'
         this._shakeAudio.onError(e => console.log('shake音效错误:', e))
       }
       this._shakeAudio.stop()
@@ -2241,7 +2279,7 @@ class Game {
     try {
       if (!this._shakeAudio) {
         this._shakeAudio = wx.createInnerAudioContext()
-        this._shakeAudio.src = 'audio/shake.mp3'
+        this._shakeAudio.src = 'audio/shake.m4a'
         this._shakeAudio.onError(e => console.log('shake音效错误:', e))
       }
       this._shakeAudio.stop()
@@ -2274,18 +2312,51 @@ class Game {
 
   _preloadAllTTS() {}
 
+  // 喊法 → 本地预生成音频文件映射（audio/tts/*.m4a，Tingting zh_CN）
+  _callAudioMap() {
+    return {
+      '六红，夯特！': 'audio/tts/liu_hong_hang_te.m4a',
+      '五红！！！':   'audio/tts/wu_hong.m4a',
+      '四红！！':     'audio/tts/si_hong.m4a',
+      '红格二十四！': 'audio/tts/hong_ge_24.m4a',
+      '格子十六！':   'audio/tts/ge_zi_16.m4a',
+      '三红！':       'audio/tts/san_hong.m4a',
+      '八洞！':       'audio/tts/ba_dong.m4a',
+      '腻三靠！':     'audio/tts/ni_san_kao.m4a',
+      '一两三！':     'audio/tts/yi_liang_san.m4a',
+      '四五六！':     'audio/tts/si_wu_liu.m4a',
+      '红三对！':     'audio/tts/hong_san_dui.m4a',
+      '三对！':       'audio/tts/san_dui.m4a',
+      '六十四！！！': 'audio/tts/liu_shi_si.m4a',
+      '三十三！！':   'audio/tts/san_shi_san.m4a',
+      '三十两！':     'audio/tts/san_shi_liang.m4a',
+      '十九～':       'audio/tts/shi_jiu.m4a',
+      '十七～':       'audio/tts/shi_qi.m4a',
+      '十六～':       'audio/tts/shi_liu.m4a',
+      '两红':         'audio/tts/liang_hong.m4a',
+      '一红':         'audio/tts/yi_hong.m4a',
+      '格2！！！':    'audio/tts/ge_2.m4a',
+      '格3！！！':    'audio/tts/ge_3.m4a',
+      '格5！！！':    'audio/tts/ge_5.m4a',
+      '格6！！！':    'audio/tts/ge_6.m4a',
+    }
+  }
+
   _speak(result) {
     if (!result || result.type === 'none') return
-    const text = result.call || result.label
+    const text = result.call
     if (!text) return
+    const src = this._callAudioMap()[text]
+    if (!src) { console.warn('[speak] 未找到音频:', text); return }
     try {
-      const filename = 'audio/tts/' + text.replace(/[！!～~]/g, '') + '.mp3'
       const audio = wx.createInnerAudioContext()
-      audio.src = filename
-      audio.onError(() => audio.destroy())
+      audio.src = src
+      audio.onError((err) => { console.error('[speak]', src, err); audio.destroy() })
       audio.onEnded(() => audio.destroy())
       audio.play()
-    } catch (e) {}
+    } catch (e) {
+      console.error('[speak catch]', e)
+    }
   }
 
   _nextTurn() {

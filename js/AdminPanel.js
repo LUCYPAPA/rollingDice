@@ -8,6 +8,7 @@ class AdminPanel {
     this.network = network
     this.visible = false
     this.authenticated = false
+    this._adminPassword = null   // 登录后在内存中保留，用于后续操作鉴权
     this.tapCount = 0
     this.tapTimer = null
 
@@ -52,6 +53,7 @@ class AdminPanel {
       })
       if (r.result.success) {
         this.authenticated = true
+        this._adminPassword = password   // 保存以供后续操作鉴权
         this.visible = true
         this.view = 'search'
         await this._loadRecentLogs()
@@ -100,6 +102,7 @@ class AdminPanel {
           delta,      // 正数加，负数减
           reason,
           adminOpenid: this.network.openid,
+          adminPassword: this._adminPassword,
         }
       })
       if (r.result.success) {
@@ -161,6 +164,7 @@ class AdminPanel {
   close() {
     this.visible = false
     this.authenticated = false
+    this._adminPassword = null
     this.selectedPlayer = null
     this.searchResults = []
   }

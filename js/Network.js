@@ -15,7 +15,7 @@ let _rooms = null
 
 function getDB() {
   if (!_db) {
-    wx.cloud.init({ env: DB_ENV, traceUser: true })
+    // wx.cloud 已在 app.js onLaunch 中初始化，此处直接使用
     _db = wx.cloud.database()
     _rooms = _db.collection('rooms')
   }

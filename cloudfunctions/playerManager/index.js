@@ -223,7 +223,13 @@ async function searchPlayers(event, adminOpenid) {
 // adminUpdateBalance（管理员）
 // ─────────────────────────────────────────────────────────────────
 async function adminUpdateBalance(event, adminOpenid) {
-  const { targetOpenid, delta, reason } = event
+  const { targetOpenid, delta, reason, adminPassword } = event
+
+  // 每次操作都验证密码，防止未经鉴权的直接调用
+  if (!adminPassword) return { success: false, error: '无权限' }
+  const hash = crypto.createHash('sha256').update(adminPassword).digest('hex')
+  if (hash !== ADMIN_PASSWORD_HASH) return { success: false, error: '无权限' }
+
   if (typeof delta !== 'number') return { success: false, error: '无效数值' }
   if (Math.abs(delta) > 100000) return { success: false, error: '单次变动不可超过10万点' }
 
@@ -317,6 +323,19 @@ async function getMyGameSummary(event, openid) {
   const myRow = (log.verifyRows || []).find(r => r.openid === openid)
   const myDetail = (log.playerDetails || []).find(r => r.openid === openid)
 
+  // 构建每把记录（最多30条），加入玩家昵称
+  const playerDetailsMap = {}
+  ;(log.playerDetails || []).forEach(p => { playerDetailsMap[p.openid] = p.nickname })
+  const events = (log.events || [])
+    .slice(-30)
+    .map(e => ({
+      round: e.round || null,
+      playerNickname: playerDetailsMap[e.openid] || (e.openid ? e.openid.slice(-4) : '?'),
+      diceValues: e.diceValues || [],
+      resultLabel: e.resultLabel || '',
+      payout: e.payout || 0,
+    }))
+
   // 返回自己的摘要 + 本局基本信息 + 参与玩家列表（仅昵称和赛后余额，不含openid）
   return {
     success: true,
@@ -336,6 +355,7 @@ async function getMyGameSummary(event, openid) {
         .filter(r => r.openid !== openid && !r.isBot)
         .map(r => ({ nickname: r.nickname, balanceAfter: r.balanceAfter }))
         .sort((a, b) => b.balanceAfter - a.balanceAfter),
+      events,
     }
   }
 }
