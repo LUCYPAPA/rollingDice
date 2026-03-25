@@ -170,7 +170,7 @@ class UI {
     const ctx = this.ctx
     const count = players.length
     const cardW = Math.min(90, (this.w - 32) / count - 6)
-    const cardH = 64
+    const cardH = 72
     const startX = (this.w - (cardW * count + (count - 1) * 6)) / 2
     const y = this.h - cardH - 16
 
@@ -195,15 +195,26 @@ class UI {
         ctx.fill()
       }
 
+      // 昵称
       ctx.fillStyle = isActive ? '#FFFFFF' : 'rgba(255,255,255,0.7)'
-      ctx.font = `bold ${cardW > 75 ? 13 : 11}px sans-serif`
+      ctx.font = 'bold ' + (cardW > 75 ? 13 : 11) + 'px sans-serif'
       ctx.textAlign = 'center'
-      const name = p.name.length > 4 ? p.name.slice(0, 4) : p.name
-      ctx.fillText(name, x + cardW / 2, y + 22)
+      const rawName = p.nickname || p.name || ''
+      const name = rawName.length > 4 ? rawName.slice(0, 4) : rawName
+      ctx.fillText(name, x + cardW / 2, y + 20)
 
-      ctx.fillStyle = '#D4AC0D'
-      ctx.font = `bold 16px serif`
-      ctx.fillText(`${p.chips}点`, x + cardW / 2, y + 44)
+      // 房间内赢的钱（chips），0显示为0，正数显示+号
+      // 房间内赢的钱：不加+号，正数绿色，0金色
+      ctx.fillStyle = p.chips > 0 ? '#2ECC71' : '#D4AC0D'
+      ctx.font = 'bold 14px serif'
+      ctx.fillText(p.chips + '点', x + cardW / 2, y + 38)
+
+      // 账户余额（联机时显示）
+      if (p.balance !== undefined && p.balance !== null) {
+        ctx.fillStyle = 'rgba(255,255,255,0.35)'
+        ctx.font = '10px sans-serif'
+        ctx.fillText('账:' + p.balance, x + cardW / 2, y + 56)
+      }
 
       ctx.globalAlpha = 1
     })

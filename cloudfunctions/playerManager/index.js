@@ -1,6 +1,10 @@
 // cloudfunctions/playerManager/index.js
-// 玩家管理：登录注册 / 余额 / 管理员鉴权 / 搜索
-// v1.1.0 + 内容安全合规（msgSecCheck / imgSecCheck）
+// v1.2.0
+// 改动说明：
+//   1. 新增 getMyGames     — 玩家查自己参与过的对局列表（手气记录）
+//   2. 新增 getMyGameSummary — 玩家查某局自己的余额变动摘要（不含完整 events）
+//   3. adminGetGameDetail  — 管理员可查任意局完整明细（补充 roomManager 的房主鉴权）
+//   4. login               — 首次赠礼提示保持不变，老用户昵称/头像更新逻辑不变
 
 const cloud = require('wx-server-sdk')
 const crypto = require('crypto')
@@ -10,7 +14,7 @@ const db = cloud.database()
 const _ = db.command
 const players  = db.collection('players')
 const logs     = db.collection('game_logs')
-const secLogs  = db.collection('security_logs')  // 违规记录
+const secLogs  = db.collection('security_logs')
 
 const ADMIN_PASSWORD_HASH = 'REPLACE_WITH_YOUR_SHA256_HASH'
 
@@ -26,6 +30,9 @@ exports.main = async (event, context) => {
       case 'searchPlayers':       return await searchPlayers(event, OPENID)
       case 'adminUpdateBalance':  return await adminUpdateBalance(event, OPENID)
       case 'getRecentLogs':       return await getRecentLogs(event)
+      case 'getMyGames':          return await getMyGames(event, OPENID)       // 新增
+      case 'getMyGameSummary':    return await getMyGameSummary(event, OPENID) // 新增
+      case 'adminGetGameDetail':  return await adminGetGameDetail(event, OPENID) // 新增
       default:
         return { success: false, error: 'unknown action' }
     }
@@ -35,40 +42,28 @@ exports.main = async (event, context) => {
   }
 }
 
-// ─────────────────────────────────────────────────────
-// 内容安全：文字检测（昵称等用户输入）
-// 返回 true = 安全，false = 违规
-// ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// 内容安全：文字检测
+// ─────────────────────────────────────────────────────────────────
 async function checkText(content, openid) {
   if (!content || !content.trim()) return true
-
   try {
     const res = await cloud.openapi.security.msgSecCheck({
       content: content.trim(),
       openid,
-      scene: 2,  // 2=个人资料，1=评论，3=论坛，4=社交日志
+      scene: 2,
       version: 2,
     })
-    // result.suggest: pass/risky/review
-    // result.label: 违规分类码（20001赌博 20002涉政 20006色情 等）
     const suggest = res.result && res.result.suggest
-    if (suggest === 'risky') {
-      console.warn('[Security] msgSecCheck risky:', content, 'openid:', openid, 'label:', res.result.label)
+    if (suggest === 'risky' || suggest === 'review') {
+      console.warn('[Security] msgSecCheck:', content, suggest)
       await _logViolation({ type: 'text', content, openid, label: res.result.label, suggest })
       return false
     }
-    if (suggest === 'review') {
-      // 需人工复审：此处保守策略=拦截，可改为放行后人工处理
-      console.warn('[Security] msgSecCheck review:', content, 'openid:', openid)
-      await _logViolation({ type: 'text', content, openid, label: res.result.label, suggest })
-      return false
-    }
-    return true  // pass
+    return true
   } catch (e) {
-    // API调用失败时保守放行，避免误伤，但记录日志
     console.error('[Security] msgSecCheck error:', e.errCode, e.errMsg)
     if (e.errCode === 87014) {
-      // 87014 = 内容含有违法违规内容，直接拦截
       await _logViolation({ type: 'text', content, openid, label: 87014, suggest: 'risky' })
       return false
     }
@@ -76,92 +71,61 @@ async function checkText(content, openid) {
   }
 }
 
-// ─────────────────────────────────────────────────────
-// 内容安全：图片检测（头像 URL）
-// 仅当用户传入自定义头像URL时调用
-// ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// 内容安全：图片检测
+// ─────────────────────────────────────────────────────────────────
 async function checkImage(avatarUrl, openid) {
   if (!avatarUrl) return true
-  // 微信官方头像域名无需检测（thirdwx.qlogo.cn / wx.qlogo.cn）
   if (avatarUrl.includes('qlogo.cn')) return true
-
   try {
-    // imgSecCheck 需要传 Buffer，先 fetch 图片内容
     const axios = require('axios')
     const response = await axios.get(avatarUrl, {
       responseType: 'arraybuffer',
       timeout: 5000,
     })
     const imgBuffer = Buffer.from(response.data)
-
     const res = await cloud.openapi.security.imgSecCheck({
-      media: {
-        contentType: 'image/jpeg',
-        value: imgBuffer,
-      },
+      media: { contentType: 'image/jpeg', value: imgBuffer },
       openid,
-      scene: 1,  // 1=资料图片
+      scene: 1,
       version: 2,
     })
     const suggest = res.result && res.result.suggest
     if (suggest === 'risky' || suggest === 'review') {
-      console.warn('[Security] imgSecCheck risky/review:', avatarUrl, 'openid:', openid)
       await _logViolation({ type: 'image', content: avatarUrl, openid, label: res.result.label, suggest })
       return false
     }
     return true
   } catch (e) {
     console.error('[Security] imgSecCheck error:', e.errCode || e.message)
-    // 图片获取失败或API失败，保守放行
     return true
   }
 }
 
-// ─────────────────────────────────────────────────────
-// 违规记录写入（供管理员查阅）
-// ─────────────────────────────────────────────────────
 async function _logViolation({ type, content, openid, label, suggest }) {
   await secLogs.add({
-    data: {
-      type,          // 'text' | 'image'
-      content,       // 违规内容（文字原文或图片URL）
-      openid,
-      label,         // 违规分类码
-      suggest,       // risky / review
-      handled: false,
-      createdAt: db.serverDate(),
-    }
-  }).catch(() => {})  // 日志写失败不影响主流程
+    data: { type, content, openid, label, suggest, handled: false, createdAt: db.serverDate() }
+  }).catch(() => {})
 }
 
-// ─────────────────────────────────────────────────────
-// 登录注册（接入内容安全检测）
-// ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// login — 首次赠 100 点，老用户更新昵称/头像
+// ─────────────────────────────────────────────────────────────────
 async function login(event, openid) {
   const { nickname, avatarUrl } = event
   const now = db.serverDate()
 
-  // ── 昵称安全检测 ──────────────────────────────────
   if (nickname && nickname.trim()) {
     const textSafe = await checkText(nickname, openid)
     if (!textSafe) {
-      return {
-        success: false,
-        blocked: true,
-        error: '昵称含有不当内容，请修改后重试',
-      }
+      return { success: false, blocked: true, error: '昵称含有不当内容，请修改后重试' }
     }
   }
 
-  // ── 头像安全检测（非微信官方头像时）──────────────
   if (avatarUrl && !avatarUrl.includes('qlogo.cn')) {
     const imgSafe = await checkImage(avatarUrl, openid)
     if (!imgSafe) {
-      return {
-        success: false,
-        blocked: true,
-        error: '头像含有不当内容，请更换头像后重试',
-      }
+      return { success: false, blocked: true, error: '头像含有不当内容，请更换头像后重试' }
     }
   }
 
@@ -175,19 +139,22 @@ async function login(event, openid) {
         openid,
         nickname: defaultNickname,
         avatarUrl: avatarUrl || '',
-        balance: 100,          // 首次联机赠送 100 点
+        balance: 100,
         gamesPlayed: 0,
-        firstOnlineGift: true, // 已领取首次赠礼标记
+        firstOnlineGift: true,
         createdAt: now,
         lastSeen: now,
       }
     })
     return { success: true, openid, balance: 100, nickname: defaultNickname, isNew: true, gift: 100 }
   } else {
+    // 老用户：更新昵称和头像，同时更新本地缓存所需字段
+    const updatedNickname = nickname || existing.data.nickname
+    const updatedAvatar   = avatarUrl || existing.data.avatarUrl
     await players.doc(openid).update({
       data: {
-        nickname: nickname || existing.data.nickname,
-        avatarUrl: avatarUrl || existing.data.avatarUrl,
+        nickname: updatedNickname,
+        avatarUrl: updatedAvatar,
         lastSeen: now,
       }
     })
@@ -195,20 +162,24 @@ async function login(event, openid) {
       success: true,
       openid,
       balance: existing.data.balance,
-      nickname: existing.data.nickname,
-      avatarUrl: existing.data.avatarUrl || '',
+      nickname: updatedNickname,
+      avatarUrl: updatedAvatar,
       isNew: false,
     }
   }
 }
 
-// ─────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// getPlayer
+// ─────────────────────────────────────────────────────────────────
 async function getPlayer(openid) {
   const res = await players.doc(openid).get()
   return { success: true, ...res.data }
 }
 
-// ─────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// adminLogin
+// ─────────────────────────────────────────────────────────────────
 async function adminLogin(event) {
   const { password } = event
   if (!password) return { success: false }
@@ -217,7 +188,9 @@ async function adminLogin(event) {
   return { success: false }
 }
 
-// ─────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// searchPlayers（管理员）
+// ─────────────────────────────────────────────────────────────────
 async function searchPlayers(event, adminOpenid) {
   const { query } = event
   if (!query) return { success: true, players: [] }
@@ -246,7 +219,9 @@ async function searchPlayers(event, adminOpenid) {
   return { success: true, players: safe }
 }
 
-// ─────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// adminUpdateBalance（管理员）
+// ─────────────────────────────────────────────────────────────────
 async function adminUpdateBalance(event, adminOpenid) {
   const { targetOpenid, delta, reason } = event
   if (typeof delta !== 'number') return { success: false, error: '无效数值' }
@@ -271,7 +246,9 @@ async function adminUpdateBalance(event, adminOpenid) {
   return { success: true, newBalance }
 }
 
-// ─────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// getRecentLogs（管理员后台用）
+// ─────────────────────────────────────────────────────────────────
 async function getRecentLogs(event) {
   const { limit = 20 } = event
   const res = await logs
@@ -279,4 +256,100 @@ async function getRecentLogs(event) {
     .limit(Math.min(limit, 50))
     .get()
   return { success: true, logs: res.data }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// getMyGames — 新增：玩家查自己参与过的对局列表（手气记录）
+// ─────────────────────────────────────────────────────────────────
+async function getMyGames(event, openid) {
+  const { limit = 20, skip = 0 } = event
+
+  // game_logs 里 players 数组存的是 openid 列表
+  const res = await logs
+    .where({ players: db.command.all([openid]) })
+    .orderBy('createdAt', 'desc')
+    .skip(skip)
+    .limit(Math.min(limit, 50))
+    .get()
+
+  // 只返回列表卡片所需字段，不含 events 明细
+  const list = res.data.map(log => {
+    // 找到自己在这局的余额变动
+    const myRow = (log.verifyRows || []).find(r => r.openid === openid)
+    const myDetail = (log.playerDetails || []).find(r => r.openid === openid)
+
+    return {
+      roomId: log.roomId,
+      roomCode: log.roomCode,
+      createdAt: log.createdAt,
+      finishedAt: log.finishedAt,
+      endReason: log.endReason || null,
+      // 参与玩家昵称列表（不含机器人，最多6个）
+      playerNicknames: (log.playerDetails || [])
+        .filter(p => !p.isBot)
+        .slice(0, 6)
+        .map(p => p.nickname),
+      // 自己的余额变动
+      balanceBefore: myRow ? myRow.balanceBefore : (myDetail ? myDetail.initialBalance : null),
+      balanceAfter: myRow ? myRow.balanceAfter : null,
+      earned: myRow ? myRow.earnedInGame : null,
+    }
+  })
+
+  return { success: true, list }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// getMyGameSummary — 新增：玩家查某局自己的余额变动摘要
+// 只返回和自己相关的 verifyRow，不暴露其他人的明细或完整 events
+// ─────────────────────────────────────────────────────────────────
+async function getMyGameSummary(event, openid) {
+  const { roomId } = event
+
+  const logRes = await logs.doc(roomId).get().catch(() => null)
+  if (!logRes) return { success: false, error: '记录不存在' }
+  const log = logRes.data
+
+  // 确认该玩家确实参与了这局
+  const participated = (log.players || []).includes(openid)
+  if (!participated) return { success: false, error: '你未参与该对局' }
+
+  const myRow = (log.verifyRows || []).find(r => r.openid === openid)
+  const myDetail = (log.playerDetails || []).find(r => r.openid === openid)
+
+  // 返回自己的摘要 + 本局基本信息 + 参与玩家列表（仅昵称和赛后余额，不含openid）
+  return {
+    success: true,
+    summary: {
+      roomCode: log.roomCode,
+      createdAt: log.createdAt,
+      finishedAt: log.finishedAt,
+      endReason: log.endReason,
+      myBalance: {
+        before: myRow ? myRow.balanceBefore : (myDetail ? myDetail.initialBalance : null),
+        after: myRow ? myRow.balanceAfter : null,
+        earned: myRow ? myRow.earnedInGame : null,
+        poolShare: myRow ? myRow.poolShare : 0,
+      },
+      // 其他玩家：只露昵称+赛后余额，排行用，不含openid
+      otherPlayers: (log.verifyRows || [])
+        .filter(r => r.openid !== openid && !r.isBot)
+        .map(r => ({ nickname: r.nickname, balanceAfter: r.balanceAfter }))
+        .sort((a, b) => b.balanceAfter - a.balanceAfter),
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// adminGetGameDetail — 新增：管理员查任意局完整明细
+// 管理员身份由前端先调 adminLogin 验证，此处信任调用方
+// 实际部署时可加管理员 openid 白名单做双重保护
+// ─────────────────────────────────────────────────────────────────
+async function adminGetGameDetail(event, openid) {
+  const { roomId } = event
+
+  const logRes = await logs.doc(roomId).get().catch(() => null)
+  if (!logRes) return { success: false, error: '记录不存在' }
+
+  return { success: true, detail: logRes.data }
 }

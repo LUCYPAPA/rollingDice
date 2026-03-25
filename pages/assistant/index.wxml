@@ -1,0 +1,27 @@
+<view class="page">
+  <!-- 消息列表 -->
+  <scroll-view class="msg-list" scroll-y enhanced show-scrollbar="{{false}}">
+    <view wx:for="{{messages}}" wx:key="index" class="msg-row {{item.role}}">
+      <view class="bubble">{{item.content}}</view>
+    </view>
+    <view wx:if="{{loading}}" class="msg-row assistant">
+      <view class="bubble loading">好婆正在想...</view>
+    </view>
+    <view id="msg-bottom" style="height:1px;"/>
+  </scroll-view>
+
+  <!-- 输入框 -->
+  <view class="input-bar">
+    <input
+      class="input"
+      value="{{inputVal}}"
+      placeholder="问好婆..."
+      placeholder-class="placeholder"
+      bindinput="onInput"
+      confirm-type="send"
+      bindconfirm="onSend"
+      adjust-position="{{true}}"
+    />
+    <view class="send-btn {{inputVal ? 'active' : ''}}" bindtap="onSend">发送</view>
+  </view>
+</view>

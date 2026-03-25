@@ -3,6 +3,7 @@
     type="2d"
     id="gameCanvas"
     class="game-canvas"
+    style="width: {{canvasW || '100%'}}px; height: {{canvasH || '100%'}}px; left: {{canvasOffsetX || 0}}px;"
     catchtouchstart="onTouchStart"
     catchtouchend="onTouchEnd"
   ></canvas>

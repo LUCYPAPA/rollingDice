@@ -1,7 +1,8 @@
 {
   "pages": [
     "pages/game/game",
-    "pages/profile/profile"
+    "pages/profile/profile",
+    "pages/assistant/index"
   ],
   "window": {
     "backgroundTextStyle": "dark",
@@ -10,7 +11,9 @@
     "navigationBarTextStyle": "white",
     "backgroundColor": "#1A0A06"
   },
+  "lazyCodeLoading": "requiredComponents",
   "cloud": true,
+  "plugins": {},
   "sitemapLocation": "sitemap.json",
   "style": "v2",
   "componentFramework": "glass-easel"

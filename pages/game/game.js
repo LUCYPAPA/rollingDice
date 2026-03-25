@@ -4,7 +4,11 @@ const Game = require('../../js/game.js')
 Page({
   _game: null,
 
-  data: {},
+  data: {
+    canvasOffsetX: 0,
+    canvasW: 0,
+    canvasH: 0,
+  },
 
   onLoad(options) {
     this._windowInfo = wx.getWindowInfo()
@@ -17,18 +21,33 @@ Page({
     const deviceInfo = this._deviceInfo
     const dpr = deviceInfo.pixelRatio || windowInfo.pixelRatio || 2
 
+    const screenW = windowInfo.windowWidth
+    const screenH = windowInfo.windowHeight
+
+    const GAME_RATIO = 375 / 812
+    let gameW, gameH, offsetX
+
+    if (screenW / screenH > GAME_RATIO) {
+      gameH   = screenH
+      gameW   = Math.floor(gameH * GAME_RATIO)
+      offsetX = Math.floor((screenW - gameW) / 2)
+    } else {
+      gameW   = screenW
+      gameH   = screenH
+      offsetX = 0
+    }
+
+    this.setData({ canvasOffsetX: offsetX, canvasW: gameW, canvasH: gameH })
+
     const query = wx.createSelectorQuery()
     query.select('#gameCanvas')
       .fields({ node: true, size: true })
       .exec((res) => {
         const canvas = res[0].node
-        const w = res[0].width  > 0 ? res[0].width  : windowInfo.windowWidth
-        const h = res[0].height > 0 ? res[0].height : windowInfo.windowHeight
+        canvas.width  = gameW * dpr
+        canvas.height = gameH * dpr
 
-        canvas.width  = w * dpr
-        canvas.height = h * dpr
-
-        this._game = new Game(canvas, w, h, dpr)
+        this._game = new Game(canvas, gameW, gameH, dpr)
         this._game.collectNickname = () => this._openProfilePage()
         this._game.start()
 
@@ -39,9 +58,8 @@ Page({
   },
 
   _openProfilePage() {
-    // 有缓存直接用，无缓存才跳 profile 页
     let cached = null
-    try { cached = wx.getStorageSync('userProfile') } catch(e) {}
+    try { cached = wx.getStorageSync('userProfile') } catch (e) {}
     if (cached && cached.nickname) {
       return Promise.resolve({ nickname: cached.nickname, avatarUrl: cached.avatarUrl || '' })
     }
@@ -59,7 +77,10 @@ Page({
   },
 
   onTouchStart(e) {
-    if (this._game) this._game.onTouchStart(e.touches[0])
+    if (!this._game) return
+    const touch = e.touches[0]
+    const offsetX = this.data.canvasOffsetX || 0
+    this._game.onTouchStart({ clientX: touch.clientX - offsetX, clientY: touch.clientY })
   },
 
   onTouchEnd() {
@@ -78,6 +99,10 @@ Page({
     if (this._game) this._game.destroy()
   },
 
+  openAssistant() {
+    wx.navigateTo({ url: '/pages/assistant/index' })
+  },
+
   onShareAppMessage() {
     const code = this._game && this._game.activityCode
     if (code) {
@@ -86,6 +111,6 @@ Page({
         path: `/pages/game/game?roomCode=${code}`,
       }
     }
-    return { title: '好婆叫侬来白相', path: '/pages/game/game' }
+    return { title: '好婆叫侬掷骰子了', path: '/pages/game/game' }
   },
 })
