@@ -1903,12 +1903,13 @@ class Game {
     }
 
     if (roomData.phase === 'waiting' && this.state !== STATE.SETUP && this.state !== STATE.LOBBY && this.state !== STATE.WINNER) {
-      this.lastResult  = null
-      this.lastPayout  = 0
-      this.rollPressed = false
-      this.physics     = null
-      this.state       = STATE.IDLE
+      this.lastResult       = null
+      this.lastPayout       = 0
+      this.rollPressed      = false
+      this.physics          = null
+      this.state            = STATE.IDLE
       this._pendingServerResult = null  // 清除上一把缓存
+      this._waitingRoundEnd = false     // 防止残留标记误触发下一轮的结算弹窗
     }
 
     if (Array.isArray(roomData.diceValues) && roomData.diceValues.length) {
@@ -2045,14 +2046,18 @@ class Game {
         // 把云端结果缓存起来，等物理动画自然播完后在 _update 里消费
         // 这样骰子最终停稳的点数 = 云端真实值，不会不一致
         const botRoundEnd = (result.newPool === 0 || result.pool === 0)
+        // 竞态保护：round_end 的 watch 回调可能在 callFunction.then 之前就到了，
+        // 此时 _pendingServerResult 里已经有 roundEndData，覆盖时必须保留
+        const existingRoundEndData = this._pendingServerResult && this._pendingServerResult.roundEndData
         this._pendingServerResult = {
-          result:     result.result,
-          payout:     result.payout || 0,
-          diceValues: result.diceValues,
-          pool:       result.newPool !== undefined ? result.newPool : (result.pool !== undefined ? result.pool : this.pool),
-          players:    this.roomData ? this.roomData.players : null,
-          isBot:      !botRoundEnd,  // round_end 时不触发 botNext，等收尾玩家确认
-          isRoundEnd: botRoundEnd,   // 底池归零标记，动画结束后等 round_end 推送
+          result:       result.result,
+          payout:       result.payout || 0,
+          diceValues:   result.diceValues,
+          pool:         result.newPool !== undefined ? result.newPool : (result.pool !== undefined ? result.pool : this.pool),
+          players:      this.roomData ? this.roomData.players : null,
+          isBot:        !botRoundEnd,
+          isRoundEnd:   botRoundEnd,
+          roundEndData: existingRoundEndData || null,  // 保留先到的 round_end 推送数据
         }
       } else {
         this._botAnimating = false
