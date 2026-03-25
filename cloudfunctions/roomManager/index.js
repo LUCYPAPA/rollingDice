@@ -570,8 +570,11 @@ async function startNewRound(event, openid) {
   if (!roomRes.data) return { success: false, error: '房间不存在' }
   const room = roomRes.data
 
-  // 只有收尾玩家（roundEndBy）才能触发
-  if (room.roundEndBy !== openid) return { success: false, error: '只有收尾玩家可以开始新一轮' }
+  // 收尾玩家可触发；收尾玩家是机器人时，允许房主代为触发
+  const finisher = (room.players || []).find(p => p.openid === room.roundEndBy)
+  const finisherIsBot = finisher && finisher.isBot
+  const canStart = room.roundEndBy === openid || (finisherIsBot && room.hostOpenid === openid)
+  if (!canStart) return { success: false, error: '只有收尾玩家可以开始新一轮' }
 
   const mode = room.mode || 'classic'
   const activePlayers = room.players.filter(p => p.active)

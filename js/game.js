@@ -2090,9 +2090,12 @@ class Game {
     const players  = (roomData.players || []).filter(p => p.active)
     const round    = roomData.round || 1
     const mode     = roomData.mode || 'classic'
-    const isFinisher = roomData.roundEndBy === this.network.openid
     const roundEndByPlayer = (roomData.players || []).find(p => p.openid === roomData.roundEndBy)
-    const roundEndByName = roundEndByPlayer ? roundEndByPlayer.nickname : '收尾玩家'
+    const roundEndByName   = roundEndByPlayer ? roundEndByPlayer.nickname : '收尾玩家'
+    const roundEndIsBot    = roundEndByPlayer && roundEndByPlayer.isBot
+    // 收尾玩家本人，或收尾玩家是机器人时由房主代理
+    const isFinisher = roomData.roundEndBy === this.network.openid ||
+                       (roundEndIsBot && this._isHost)
 
     // 构建战绩文本
     const lines = players.map(p => {
@@ -2100,14 +2103,11 @@ class Game {
       return `${p.nickname}：${sign}${p.chips} 点`
     }).join('\n')
 
-
     const modeText = mode === 'classic' ? '经典版' : '对决版'
     const content  = '第 ' + round + ' 轮结束\n\n' + lines
 
-
-
     if (isFinisher) {
-      // 收尾玩家：有「开始新一轮」按钮
+      // 收尾玩家（或机器人收尾时的房主）：有「开始新一轮」按钮
       wx.showModal({
         title: `🎲 ${modeText} · 第 ${round} 轮结束`,
         content,
