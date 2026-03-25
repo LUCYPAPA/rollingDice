@@ -202,9 +202,9 @@ class Game {
               this.ui.spawnParticles(this.bowlCX, this.bowlCY, emojis,
                 sr.result.amount === Infinity ? 20 : 10)
             }
-            // 如果是机器人的回合，2秒后自动点下一位
+            // 动画结束时总是重置机器人状态（包括机器人清空底池触发 round_end 的情况）
+            this._botAnimating = false
             if (sr.isBot) {
-              this._botAnimating = false
               setTimeout(() => this._triggerBotNext(), 2000)
             }
             // 如果是轮末，弹轮次结算弹窗
@@ -1875,8 +1875,10 @@ class Game {
     this.roomData = roomData
     this.round    = roomData.round || this.round
     // pool 只在非动画阶段立即更新
-    // settled 阶段 pool 缓存到 _pendingServerResult，等动画结束后一起显示
-    if (roomData.phase !== 'settled' && roomData.phase !== 'rolling') {
+    // settled / round_end 阶段 pool 缓存到 _pendingServerResult，等动画结束后一起显示
+    // ROLLING 状态时也不更新，防止 waiting 推送提前刷新显示
+    if (roomData.phase !== 'settled' && roomData.phase !== 'rolling' &&
+        roomData.phase !== 'round_end' && this.state !== STATE.ROLLING) {
       this.pool = roomData.pool !== undefined ? roomData.pool : this.pool
     }
 
@@ -1894,8 +1896,8 @@ class Game {
       this._startOnlineGame(roomData); return
     }
 
-    // players 在 settled 阶段不立即更新，缓存到 _pendingServerResult 等动画结束后一起显示
-    if (roomData.phase !== 'settled') {
+    // players 在 settled / round_end / 动画播放期间不立即更新，等动画结束后一起显示
+    if (roomData.phase !== 'settled' && roomData.phase !== 'round_end' && this.state !== STATE.ROLLING) {
       this.players       = (roomData.players || []).map(p => ({ ...p, name: p.nickname, chips: p.chips, balance: p.balance ?? null, active: p.active }))
       this.currentPlayer = roomData.currentPlayerIndex
     }
