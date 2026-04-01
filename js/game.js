@@ -1495,31 +1495,6 @@ class Game {
     this._hostDetailLoading = false
   }
 
-  // ── 关注作者弹窗 ─────────────────────────────────────────────
-  _showFollowModal() {
-    wx.showModal({
-      title: '关注作者',
-      content: '搜索公众号 CROSS-RANGE 关注\n后台留言 Hopucallyouplay 有惊喜 🎁',
-      confirmText: '这就关注',
-      cancelText: '下次一定',
-      success: (res) => {
-        if (res.confirm) {
-          // 跳转公众号主页（需填入 CROSS-RANGE 公众号原始ID）
-          if (wx.openOfficialAccountProfile) {
-            wx.openOfficialAccountProfile({
-              username: 'gh_0ed02e873abc',  // CROSS-RANGE 公众号原始ID，请在公众号后台确认
-              fail: () => {
-                wx.showToast({ title: '请微信搜索 CROSS-RANGE', icon: 'none', duration: 3000 })
-              }
-            })
-          } else {
-            wx.showToast({ title: '请微信搜索 CROSS-RANGE', icon: 'none', duration: 3000 })
-          }
-        }
-      }
-    })
-  }
-
   // ── 标题5次点击进管理员 ──────────────────────────────────────
   _onTitleTap() {
     this._titleTapCount++
@@ -2225,7 +2200,6 @@ class Game {
     this.physics       = null
     this.diceValues    = [1, 2, 3, 4, 5, 6]
 
-    this._preloadAllTTS()
     this._collectPool()
     this.state = STATE.IDLE
     this._startAutoRollTimer()
@@ -2257,7 +2231,7 @@ class Game {
     this.state      = STATE.ROLLING
     this.lastResult = null
 
-    const values = Array.from({ length: 6 }, () => Math.ceil(Math.random() * 6))
+    const values = Array.from({ length: 6 }, () => Math.floor(Math.random() * 6) + 1)
     this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
     this.physics.spawnAll(values)
 
@@ -2318,8 +2292,6 @@ class Game {
     }
   }
 
-  _preloadAllTTS() {}
-
   // 喊法 → 本地预生成音频文件映射（audio/tts/*.m4a，Tingting zh_CN）
   _callAudioMap() {
     return {
@@ -2349,6 +2321,7 @@ class Game {
       '格6！！！':    'audio/tts/ge_6.m4a',
     }
   }
+
 
   _speak(result) {
     if (!result || result.type === 'none') return

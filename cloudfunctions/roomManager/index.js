@@ -9,6 +9,8 @@
 const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
+const rollSixDice = () => Array.from({ length: 6 }, () => Math.floor(Math.random() * 6) + 1)
+
 const db = cloud.database()
 const _ = db.command
 const rooms   = db.collection('rooms')
@@ -164,7 +166,7 @@ async function rollDice(event, openid) {
   const currentPlayer = room.players[room.currentPlayerIndex]
   if (currentPlayer.openid !== openid) return { success: false, error: '还没到你的回合' }
   if (room.phase !== 'waiting' && room.phase !== 'settled') return { success: false, error: '请等待当前操作完成' }
-  const diceValues = Array.from({ length: 6 }, () => Math.ceil(Math.random() * 6))
+  const diceValues = rollSixDice()
   return rollDiceForPlayer(room, roomId, openid, diceValues)
 }
 
@@ -842,7 +844,7 @@ async function botRoll(event, openid) {
     return { success: false, error: '当前不是该机器人的回合' }
   }
 
-  const diceValues = Array.from({ length: 6 }, () => Math.floor(Math.random() * 6) + 1)
+  const diceValues = rollSixDice()
   return await rollDiceForPlayer(room, roomId, botOpenid, diceValues)
 }
 
