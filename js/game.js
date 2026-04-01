@@ -1893,9 +1893,10 @@ class Game {
       if (key !== this._lastServerDiceKey) {
         this._lastServerDiceKey = key
         this.diceValues = roomData.diceValues
-        // Bug修复1：rolling推送只在非自己发起时才触发远端动画
-        // 自己摇骰时本地已有物理动画，_pendingServerRoll=true，不能被云端推送覆盖
-        if (roomData.phase === 'rolling' && !this._pendingServerRoll) {
+        // rolling推送只在非自己发起、且机器人动画未在播时才触发远端动画
+        // _pendingServerRoll=true 说明是自己摇骰，本地已有物理动画不能被覆盖
+        // _botAnimating=true 说明 host 已在 _triggerBotRoll 里启动了动画，防止重复
+        if (roomData.phase === 'rolling' && !this._pendingServerRoll && !this._botAnimating) {
           this._playRemoteDice(roomData.diceValues)
         }
       }
@@ -1918,6 +1919,10 @@ class Game {
       clearTimeout(this._serverRollTimeout)
       this._pendingServerRoll = false
       if (!this._botAnimating) {
+        // 如果 rolling 推送被合并跳过、动画从未启动，补起动画
+        if (this.state !== STATE.ROLLING && roomData.diceValues && roomData.diceValues.length) {
+          this._playRemoteDice(roomData.diceValues)
+        }
         // 缓存云端结算结果（含更新后的 pool），等动画结束后一起显示
         this._pendingServerResult = {
           result:     roomData.lastResult,
@@ -1925,7 +1930,7 @@ class Game {
           diceValues: roomData.diceValues || [],
           pool:       roomData.pool !== undefined ? roomData.pool : this.pool,
           players:    roomData.players || null,
-          isRoundEnd: false,  // settled 不是轮末
+          isRoundEnd: false,
         }
       }
     }
@@ -1944,15 +1949,29 @@ class Game {
         this._waitingRoundEnd = false
         this._applyRoundEndState(roomData)
         this._showRoundEndResult(roomData)
-      } else {
-        // 没有缓存也没在等——说明推送比动画先到，建缓存等动画结束
+      } else if (this.state === STATE.ROLLING) {
+        // 动画在播但推送比 _triggerBotRoll.then 先到，建缓存等动画结束
         this._pendingServerResult = {
-          result:      roomData.lastResult,
-          payout:      roomData.lastPayout || 0,
-          diceValues:  roomData.diceValues || [],
-          pool:        roomData.pool !== undefined ? roomData.pool : this.pool,
-          players:     roomData.players || null,
-          isRoundEnd:  true,
+          result:       roomData.lastResult,
+          payout:       roomData.lastPayout || 0,
+          diceValues:   roomData.diceValues || [],
+          pool:         roomData.pool !== undefined ? roomData.pool : this.pool,
+          players:      roomData.players || null,
+          isRoundEnd:   true,
+          roundEndData: roomData,
+        }
+      } else {
+        // rolling推送被合并跳过、动画从未启动 → 立即补起动画，再建缓存等它结束
+        if (roomData.diceValues && roomData.diceValues.length) {
+          this._playRemoteDice(roomData.diceValues)
+        }
+        this._pendingServerResult = {
+          result:       roomData.lastResult,
+          payout:       roomData.lastPayout || 0,
+          diceValues:   roomData.diceValues || [],
+          pool:         roomData.pool !== undefined ? roomData.pool : this.pool,
+          players:      roomData.players || null,
+          isRoundEnd:   true,
           roundEndData: roomData,
         }
       }
