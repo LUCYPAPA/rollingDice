@@ -1944,8 +1944,9 @@ class Game {
         // 已有缓存，直接打标记（机器人或普通玩家动画还在播）
         this._pendingServerResult.isRoundEnd = true
         this._pendingServerResult.roundEndData = roomData
-      } else if (this._waitingRoundEnd) {
-        // 动画已播完，round_end 推送后到，现在直接弹
+      } else if (this._waitingRoundEnd || this.state === STATE.RESULT) {
+        // 动画已播完（_waitingRoundEnd），或结果页已展示（STATE.RESULT）
+        // round_end 推送后到 → 直接弹结算弹窗，无需再等动画
         this._waitingRoundEnd = false
         this._applyRoundEndState(roomData)
         this._showRoundEndResult(roomData)
