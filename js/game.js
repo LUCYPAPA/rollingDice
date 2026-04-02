@@ -212,6 +212,7 @@ class Game {
               if (sr.roundEndData) {
                 // round_end 推送已经到了，1.5秒后弹窗（让玩家看清骰子结果）
                 setTimeout(() => {
+                  this._roundEndShown = true
                   this._applyRoundEndState(sr.roundEndData)
                   this._showRoundEndResult(sr.roundEndData)
                 }, 1500)
@@ -230,6 +231,23 @@ class Game {
         }
       }
     }
+    // 兜底：STATE.RESULT + 底池为0 超过3秒还没弹结算窗，用最新 roomData 强制触发
+    if (this.isOnline && this.state === STATE.RESULT && this.pool === 0) {
+      if (!this._resultStuckAt) {
+        this._resultStuckAt = Date.now()
+      } else if (Date.now() - this._resultStuckAt > 3000 && !this._roundEndShown) {
+        const rd = this.roomData
+        if (rd && rd.phase === 'round_end') {
+          this._roundEndShown = true
+          this._resultStuckAt = null
+          this._applyRoundEndState(rd)
+          this._showRoundEndResult(rd)
+        }
+      }
+    } else {
+      this._resultStuckAt = null
+    }
+
     this.ui.updateParticles()
   }
 
@@ -1886,6 +1904,7 @@ class Game {
       this.state            = STATE.IDLE
       this._pendingServerResult = null  // 清除上一把缓存
       this._waitingRoundEnd = false     // 防止残留标记误触发下一轮的结算弹窗
+      this._roundEndShown   = false     // 重置弹窗标记，允许下一轮正常弹
     }
 
     if (Array.isArray(roomData.diceValues) && roomData.diceValues.length) {
@@ -1948,6 +1967,7 @@ class Game {
         // 动画已播完（_waitingRoundEnd），或结果页已展示（STATE.RESULT）
         // round_end 推送后到 → 直接弹结算弹窗，无需再等动画
         this._waitingRoundEnd = false
+        this._roundEndShown   = true
         this._applyRoundEndState(roomData)
         this._showRoundEndResult(roomData)
       } else if (this.state === STATE.ROLLING) {
