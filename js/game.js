@@ -2004,9 +2004,20 @@ class Game {
     }
 
     if (roomData.status === 'finished') {
-      // ── 改动：游戏结束时构建账单数据 ─────────────────────────
-      this._buildAndShowSettleCard(roomData)
-      this.state = STATE.WINNER
+      // 只有当轮次结算弹窗显示完成后，才显示局后账单
+      if (this._roundEndShown) {
+        // ── 改动：游戏结束时构建账单数据 ─────────────────────────
+        this._buildAndShowSettleCard(roomData)
+        this.state = STATE.WINNER
+      } else {
+        // 轮次结算弹窗尚未显示，延迟处理，等待轮次结算完成
+        setTimeout(() => {
+          if (this._roundEndShown) {
+            this._buildAndShowSettleCard(roomData)
+            this.state = STATE.WINNER
+          }
+        }, 1000)
+      }
     }
 
     if (this.isOnline && roomData.phase === 'waiting' && this.state === STATE.IDLE && this._isMyTurn()) {
@@ -2161,6 +2172,13 @@ class Game {
         content: content + `\n\n等待 ${roundEndByName} 启动新一轮...`,
         showCancel: false,
         confirmText: '知道了',
+        success: () => {
+          // 检查房间是否已经结束，如果结束则显示局后账单
+          if (this.roomData && this.roomData.status === 'finished') {
+            this._buildAndShowSettleCard(this.roomData).catch(() => {})
+            this.state = STATE.WINNER
+          }
+        }
       })
     }
   }
