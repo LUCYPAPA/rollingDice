@@ -1,10 +1,11 @@
+const { CLOUD_ENV, loadRemoteConfig } = require('./js/config.js')
+
 App({
   onLaunch() {
     if (wx.cloud) {
-      wx.cloud.init({
-        env: 'cloud1-0gqcenjqfe77a332',
-        traceUser: true,
-      })
+      wx.cloud.init({ env: CLOUD_ENV, traceUser: true })
+      // 云初始化后异步拉取远程配置，失败时静默降级到本地默认值
+      loadRemoteConfig()
     }
   },
 

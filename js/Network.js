@@ -8,8 +8,6 @@
 //   5. 新增 getGameDetail  — 房主查某局完整明细
 //   6. 新增 adminGetGameDetail — 管理员查任意局明细
 
-const DB_ENV = 'cloud1-0gqcenjqfe77a332'
-
 let _db = null
 let _rooms = null
 

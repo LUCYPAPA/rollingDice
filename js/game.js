@@ -15,6 +15,7 @@ const { PhysicsWorld } = require('./Physics.js')
 const { evaluateDice } = require('./Rules.js')
 const { Network }     = require('./Network.js')
 const { AdminPanel }  = require('./AdminPanel.js')
+const { getConfig }   = require('./config.js')
 
 const STATE = {
   SETUP:      'setup',
@@ -53,12 +54,14 @@ class Game {
     this.bowlRX = this.w * 0.38
     this.bowlRY = this.h * 0.19
 
+    const cfg = getConfig()
+
     // 游戏状态
     this.state         = STATE.SETUP
     this.players       = []
     this.currentPlayer = 0
     this.pool          = 0
-    this.stake         = 32
+    this.stake         = cfg.defaultStake
     this.mode          = 'classic'
     this.round         = 1
     this.physics       = null
@@ -67,12 +70,12 @@ class Game {
     this.lastPayout    = 0
     this.rollPressed   = false
     this.autoRollTimer     = null
-    this.autoRollSeconds   = 60
-    this.autoRollRemaining = 60
+    this.autoRollSeconds   = cfg.autoRollSeconds
+    this.autoRollRemaining = cfg.autoRollSeconds
 
     // Setup 页状态
     this.setupPlayers = ['阿七头', '曹莱西', '桌西君']
-    this.setupStake   = 32
+    this.setupStake   = cfg.defaultStake
     this.setupMode    = 'classic'
     this.setupFocus   = null
 
@@ -122,9 +125,8 @@ class Game {
   start() {
     this._loop()
     this._startShakeListener()
-    // 打开小程序时显示欢迎卡，3秒后自动消失
     this._showWelcome = true
-    this._welcomeTimer = setTimeout(() => { this._showWelcome = false }, 3000)
+    this._welcomeTimer = setTimeout(() => { this._showWelcome = false }, getConfig().welcomeCardDuration)
   }
 
   _startShakeListener() {
@@ -205,7 +207,7 @@ class Game {
             // 动画结束时总是重置机器人状态（包括机器人清空底池触发 round_end 的情况）
             this._botAnimating = false
             if (sr.isBot) {
-              setTimeout(() => this._triggerBotNext(), 2000)
+              setTimeout(() => this._triggerBotNext(), getConfig().botNextDelay)
             }
             // 如果是轮末，弹轮次结算弹窗
             if (sr.isRoundEnd) {
@@ -235,7 +237,7 @@ class Game {
     if (this.isOnline && this.state === STATE.RESULT && this.pool === 0) {
       if (!this._resultStuckAt) {
         this._resultStuckAt = Date.now()
-      } else if (Date.now() - this._resultStuckAt > 3000 && !this._roundEndShown) {
+      } else if (Date.now() - this._resultStuckAt > getConfig().stuckDetectionMs && !this._roundEndShown) {
         const rd = this.roomData
         if (rd && rd.phase === 'round_end') {
           this._roundEndShown = true
@@ -1554,12 +1556,12 @@ class Game {
     const w  = this.w, ui = this.ui, st = this.safeTop, h = this.h
 
     if (tx >= 40 && tx <= w - 40 && ty >= st + 112 && ty <= st + 156) {
+      const stakeOptions = getConfig().stakeOptions
       wx.showActionSheet({
-        itemList: ['16点', '32点', '50点', '100点', '自定义'],
+        itemList: [...stakeOptions.map(s => `${s}点`), '自定义'],
         success: res => {
-          const stakes = [16, 32, 50, 100]
-          if (res.tapIndex < 4) {
-            this.setupStake = stakes[res.tapIndex]
+          if (res.tapIndex < stakeOptions.length) {
+            this.setupStake = stakeOptions[res.tapIndex]
           } else {
             wx.showModal({
               title: '自定义底池', editable: true, placeholderText: '输入数额',
@@ -1793,9 +1795,10 @@ class Game {
   }
 
   _promptStakeAndCreate() {
-    const defaultStake = this.setupStake || 32
+    const cfg = getConfig()
+    const defaultStake = this.setupStake || cfg.defaultStake
     wx.showModal({
-      title: '设置底池', content: `每人底池默认 ${defaultStake} 点，首次联机赠送 100 点。`,
+      title: '设置底池', content: `每人底池默认 ${defaultStake} 点，首次联机赠送 ${cfg.newPlayerGift} 点。`,
       confirmText: '去设置', cancelText: '用默认',
       success: (res) => {
         if (!res.confirm) { this._createOnlineRoom(); return }
@@ -1817,7 +1820,8 @@ class Game {
     this._lobbyLoading = true
     this._lobbyError   = ''
     try {
-      const res = await this.network.createRoom({ stake: this.setupStake || 32, maxPlayers: 6 })
+      const cfg = getConfig()
+      const res = await this.network.createRoom({ stake: this.setupStake || cfg.defaultStake, maxPlayers: cfg.defaultMaxPlayers })
       if (res.success) {
         this.activityCode = res.roomCode || res.activityCode
         this._isHost      = true
@@ -1927,7 +1931,7 @@ class Game {
       const cur = roomData.players[roomData.currentPlayerIndex]
       if (cur && cur.isBot) {
         clearTimeout(this._botTimer)
-        this._botTimer = setTimeout(() => this._triggerBotRoll(), 1200)
+        this._botTimer = setTimeout(() => this._triggerBotRoll(), getConfig().botRollDelay)
       }
     }
 
@@ -2088,12 +2092,12 @@ class Game {
         }
       } else {
         this._botAnimating = false
-        setTimeout(() => this._triggerBotNext(), 800)
+        setTimeout(() => this._triggerBotNext(), getConfig().botNextDelay)
       }
     } catch (e) {
       console.error('botRoll fail', e)
       this._botAnimating = false
-      setTimeout(() => this._triggerBotNext(), 2000)
+      setTimeout(() => this._triggerBotNext(), getConfig().botNextDelay)
     }
   }
 
@@ -2203,12 +2207,7 @@ class Game {
     })
   }
 
-  _playRemoteDice(values) {
-    if (!Array.isArray(values) || values.length === 0) return
-    this.state   = STATE.ROLLING
-    this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
-    this.physics.spawnAll(values)
-    // 对方摇骰时也播放音效
+  _playShakeAudio() {
     try {
       if (!this._shakeAudio) {
         this._shakeAudio = wx.createInnerAudioContext()
@@ -2218,6 +2217,14 @@ class Game {
       this._shakeAudio.stop()
       this._shakeAudio.play()
     } catch (e) {}
+  }
+
+  _playRemoteDice(values) {
+    if (!Array.isArray(values) || values.length === 0) return
+    this.state   = STATE.ROLLING
+    this.physics = new PhysicsWorld(this.bowlCX, this.bowlCY, this.bowlRX, this.bowlRY)
+    this.physics.spawnAll(values)
+    this._playShakeAudio()
   }
 
   _startOnlineGame(roomData) {
@@ -2304,7 +2311,7 @@ class Game {
           wx.showToast({ title: '联机结算超时，请重试', icon: 'none' })
           this._startAutoRollTimer()
         }
-      }, 7000)
+      }, getConfig().serverRollTimeout)
       this.network.rollDice([]).catch((e) => {
         console.error('rollDice err', e)
         clearTimeout(this._serverRollTimeout)
@@ -2316,15 +2323,7 @@ class Game {
       })
     }
 
-    try {
-      if (!this._shakeAudio) {
-        this._shakeAudio = wx.createInnerAudioContext()
-        this._shakeAudio.src = 'audio/shake.m4a'
-        this._shakeAudio.onError(e => console.log('shake音效错误:', e))
-      }
-      this._shakeAudio.stop()
-      this._shakeAudio.play()
-    } catch (e) { console.log('音效失败:', e) }
+    this._playShakeAudio()
   }
 
   _finishRoll() {

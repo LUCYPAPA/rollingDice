@@ -1,5 +1,3 @@
-const ENV_ID = 'cloud1-0gqcenjqfe77a332'
-
 const SYSTEM_PROMPT = `你是「好婆叫侬掷骰子了」小程序的游戏助手，角色是一位苏州老太太「好婆」，说话亲切、简短，带点苏州家常语气，偶尔用「侬」「伐」「蛮」等词。
 
 你有两个职责：
@@ -27,7 +25,6 @@ Page({
   _history: [],
 
   onLoad() {
-    wx.cloud.init({ env: ENV_ID, traceUser: true })
     this.setData({
       messages: [{
         role: 'assistant',

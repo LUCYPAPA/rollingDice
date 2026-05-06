@@ -38,6 +38,7 @@ exports.main = async (event, context) => {
       case 'getGameDetail':    return await getGameDetail(event, OPENID)
       case 'confirmNewRound':  return await confirmNewRound(event, OPENID)  // 新增 v1.3
       case 'startNewRound':    return await startNewRound(event, OPENID)    // 新增 v1.4
+      case 'getConfig':        return await getConfig()
       default: return { success: false, error: 'unknown action' }
     }
   } catch (e) {
@@ -989,6 +990,7 @@ async function initDB() {
     'balance_ledger',
     'security_logs',
     'admin_logs',
+    'game_config',
   ]
   const results = []
   for (const name of collections) {
@@ -1004,4 +1006,21 @@ async function initDB() {
     }
   }
   return { success: true, results }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// getConfig — 读取远程游戏配置（存储在 game_config 集合）
+// ─────────────────────────────────────────────────────────────────
+async function getConfig() {
+  try {
+    const cfgCol = db.collection('game_config')
+    const res = await cfgCol.doc('default').get().catch(() => null)
+    if (res && res.data) {
+      const { _id, _openid, ...config } = res.data
+      return { success: true, config }
+    }
+    return { success: true, config: {} }
+  } catch (e) {
+    return { success: false, config: {} }
+  }
 }
