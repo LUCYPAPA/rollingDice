@@ -1,0 +1,198 @@
+<view class="page">
+
+<!-- 顶部品牌区 -->
+<view class="brand-area">
+  <text class="brand-tag" bindtap="onOpenOfficialAccount">CROSS-RANGE</text>
+  <view class="brand-redraw-row">
+    <view class="brand-title-row">
+      <text class="brand-char">祝</text>
+      <text class="brand-char">君</text>
+      <text class="brand-char">好</text>
+      <text class="brand-char">运</text>
+    </view>
+    <!-- 已抽签后显示"再抽一个"，未关注的点了会引导关注 -->
+    <view wx:if="{{todaySigned}}" class="btn-brand-redraw" bindtap="onBrandRedraw">再抽一个</view>
+  </view>
+  <text class="brand-sub">每日一签 · 好运随行</text>
+</view>
+
+<!-- 求签主区域 -->
+<view class="fortune-area">
+
+  <!-- 未抽状态 -->
+  <view wx:if="{{!todaySigned}}" class="sign-vessel-wrap" bindtap="onShake">
+    <view class="vessel-img-placeholder {{vesselShaking ? 'vessel-shaking' : ''}}">
+      <image wx:if="{{vesselImg}}" src="{{vesselImg}}" class="vessel-img" mode="aspectFit"/>
+      <view wx:else class="vessel-fallback">
+        <view class="sticks-row">
+          <view class="stick" style="height:88rpx"></view>
+          <view class="stick" style="height:112rpx"></view>
+          <view class="stick {{stickFlying ? 'stick-flying' : ''}}" style="height:72rpx"></view>
+          <view class="stick" style="height:120rpx"></view>
+          <view class="stick" style="height:96rpx"></view>
+          <view class="stick" style="height:80rpx"></view>
+          <view class="stick" style="height:104rpx"></view>
+        </view>
+        <view class="vessel-box-label">CROSS-RANGE</view>
+      </view>
+    </view>
+    <text class="shake-hint">{{vesselShaking ? '签来了...' : '轻触签筒，摇一摇也行呀'}}</text>
+  </view>
+
+  <!-- 已抽状态：签文卡片 -->
+  <view wx:if="{{todaySigned}}" class="sign-result-card {{cardAppearing ? 'card-appearing' : ''}}" style="border-color:{{signBorderColor}}">
+
+    <view class="sign-badge" style="background:{{signBadgeBg}};color:{{signBadgeColor}}">{{signLevel}}</view>
+    <text class="sign-number">{{signNum}}</text>
+    <text class="sign-title" style="color:{{signTitleColor}}">{{signTitle}}</text>
+
+    <view class="sign-poem-area">
+      <text class="sign-poem">{{signPoem}}</text>
+    </view>
+
+    <view class="pixel-illus" style="background:{{pixelBg}}">
+      <view wx:for="{{pixelGrid}}" wx:key="index" class="px" style="background:{{item}}"></view>
+    </view>
+
+    <view class="joey-block">
+      <text class="joey-name">mini Joey 说</text>
+      <text class="joey-text">{{joeyText}}</text>
+    </view>
+
+    <!-- 好/上/中签 -->
+    <view wx:if="{{isGoodSign}}" class="sign-actions">
+      <view class="btn-share" style="background:{{signBtnColor}}" bindtap="onSharePoster">
+        分享到朋友圈 ✦
+      </view>
+      <view class="btn-fortune" bindtap="onShowFortune">查看今日运势解读</view>
+    </view>
+
+    <!-- 凶签操作区 -->
+    <view wx:if="{{!isGoodSign}}" class="sign-actions">
+      <view wx:if="{{!badSignRedrawn}}" class="btn-redraw" bindtap="onRedrawBadSign">
+        换一支试试手气
+      </view>
+      <view wx:elif="{{badSignRedrawn}}" class="btn-solve" bindtap="onOpenOfficialAccount">
+        去公众号逛逛再回来抽吧 →
+      </view>
+      <view class="btn-fortune" bindtap="onShowFortune">查看今日运势解读</view>
+    </view>
+
+  </view>
+
+  <!-- 连续天数 -->
+  <view class="streak-row">
+    <block wx:for="{{streakDots}}" wx:key="index">
+      <view class="streak-dot {{item ? 'dot-on' : ''}}"></view>
+    </block>
+    <text class="streak-label">连续 {{streakDays}} 天</text>
+  </view>
+
+</view>
+
+<!-- 游戏入口区 -->
+<view class="games-area">
+  <text class="games-label">民间游戏</text>
+  <view class="games-row">
+    <view class="game-btn game-btn-active" bindtap="goToGame">
+      <view class="game-icon-wrap">
+        <image wx:if="{{gameIcon32}}" src="{{gameIcon32}}" class="game-icon-img" mode="aspectFit"/>
+        <text wx:else class="game-icon-emoji">🎲</text>
+      </view>
+      <text class="game-btn-name">三十二</text>
+      <text class="game-btn-sub">拼手气合家欢</text>
+    </view>
+    <view class="game-btn game-btn-soon">
+      <view class="game-icon-wrap">
+        <text class="game-icon-emoji">🎯</text>
+      </view>
+      <text class="game-btn-name">大小子</text>
+      <text class="game-btn-sub">即将上线</text>
+      <view class="soon-badge">待开放</view>
+    </view>
+  </view>
+</view>
+
+<!-- 运势解读浮层 -->
+<view wx:if="{{showFortune}}" class="fortune-overlay" bindtap="onCloseFortune">
+  <view class="fortune-sheet" catchtap="">
+    <view class="fortune-handle"></view>
+    <text class="fortune-sheet-title">今日运势解读</text>
+    <view class="fortune-block">
+      <text class="fortune-block-label">① 今日宜忌</text>
+      <text class="fortune-block-body">{{fortuneYiJi}}</text>
+    </view>
+    <view class="fortune-block">
+      <text class="fortune-block-label">② 本周趋势</text>
+      <text class="fortune-block-body">{{fortuneTrend}}</text>
+    </view>
+    <view class="fortune-block">
+      <text class="fortune-block-label">③ Joey 的问题</text>
+      <text class="fortune-block-body joey-question">{{fortuneQuestion}}</text>
+    </view>
+    <view class="fortune-close" bindtap="onCloseFortune">收起</view>
+  </view>
+</view>
+
+<!-- 关注公众号引导浮层 -->
+<view wx:if="{{showFollowSheet}}" class="follow-overlay" bindtap="onCloseFollowSheet">
+  <view class="follow-sheet" catchtap="">
+    <view class="fortune-handle"></view>
+    <text class="follow-title">关注 CROSS-RANGE</text>
+    <text class="follow-desc">关注公众号，解锁每日最多 3 次重抽</text>
+    <official-account
+      appid="wx766a3c0b0ea667c1"
+      class="oa-card"
+      bindload="onOALoad"
+      binderror="onOAError"
+      bindfollow="onOAFollow"
+    ></official-account>
+    <view class="follow-tip">关注后点击下方按钮</view>
+    <view class="btn-followed" bindtap="onConfirmFollowed">已关注，去抽签 →</view>
+    <view class="btn-follow-cancel" bindtap="onCloseFollowSheet">先不了</view>
+  </view>
+</view>
+
+<!-- 达上限引导浮层 -->
+<view wx:if="{{showLimitSheet}}" class="follow-overlay" bindtap="onCloseLimitSheet">
+  <view class="follow-sheet" catchtap="">
+    <view class="fortune-handle"></view>
+    <text class="follow-title">今日签已抽够啦 🎋</text>
+    <text class="follow-desc">明天再来抽签，今天可以去这里逛逛</text>
+    <view class="limit-entry" bindtap="onLimitGoPublic">
+      <view class="limit-entry-icon">📖</view>
+      <view class="limit-entry-info">
+        <text class="limit-entry-name">CROSS-RANGE 公众号</text>
+        <text class="limit-entry-sub">系统化生活实验，好文章等你看</text>
+      </view>
+      <text class="limit-entry-arrow">→</text>
+    </view>
+    <view class="limit-entry" bindtap="onLimitGoVideo">
+      <view class="limit-entry-icon">🎬</view>
+      <view class="limit-entry-info">
+        <text class="limit-entry-name">CROSS-RANGE 视频号</text>
+        <text class="limit-entry-sub">跑步、篮球、AI，有意思的视频</text>
+      </view>
+      <text class="limit-entry-arrow">→</text>
+    </view>
+    <view class="limit-entry" bindtap="onLimitGoGame">
+      <view class="limit-entry-icon">🎲</view>
+      <view class="limit-entry-info">
+        <text class="limit-entry-name">民间游戏·三十二</text>
+        <text class="limit-entry-sub">拼手气合家欢，一起玩</text>
+      </view>
+      <text class="limit-entry-arrow">→</text>
+    </view>
+    <view class="btn-follow-cancel" bindtap="onCloseLimitSheet">知道了，明天再来</view>
+  </view>
+</view>
+
+<!-- 隐藏海报 Canvas -->
+<canvas type="2d" id="posterCanvas" class="poster-canvas-hidden" style="width:{{posterW}}px;height:{{posterH}}px;"></canvas>
+
+<!-- 页脚 -->
+<view class="footer">
+  <text class="footer-text">© 2026 CROSS-RANGE</text>
+</view>
+
+</view>
